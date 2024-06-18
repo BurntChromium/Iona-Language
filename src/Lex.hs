@@ -3,7 +3,8 @@ module Lex where
 import Control.Monad.State
 import Data.Char
 
-import Errors (Cursor(..), updateCursor, Problem(..), ProblemClass(..))
+import Errors (Problem(..), ProblemClass(..), quickProblem)
+import Source (Cursor(..), updateCursor)
 
 -- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
 data Symbol = Comment | Identifier | Import | Path | With deriving (Show, Eq)
@@ -12,17 +13,16 @@ data Symbol = Comment | Identifier | Import | Path | With deriving (Show, Eq)
 data Token = Token {
     str :: String,
     sym :: Symbol,
-    line :: Int,
-    offset :: Int
+    pos :: Cursor
 }
 
 -- We return both a list of tokens and of problems -> not all problems are fatal and we also want to recover from errors
 type LexerResult = ([Token], [Problem])
 
--- A lexer passes around a stateful Cursor as it processes tokens
+-- A Lexer object carries state for the cursor 
 type Lexer = State Cursor LexerResult
 
--- Pattern match
+-- Run lexing by pattern matching
 lexer :: String -> Lexer
 lexer [] = return ([], []) -- Empty string => empty token list
 lexer (c:cs)
@@ -31,7 +31,7 @@ lexer (c:cs)
         lexer cs
     | otherwise = do -- handle unsupported characters
         cursor <- get
-        let problem = Problem Error cursor ("unexpected character: " ++ [c]) (Just "character is probably recognized")
+        let problem = quickProblem Error cursor ("unrecognized character: " ++ [c])
         updateState c
         (tokens, problems) <- lexer cs
         return (tokens, problem : problems)

@@ -1,27 +1,11 @@
 module Errors (
     ProblemClass(..),
     Problem(..),
-    Cursor(..),
-    updateCursor,
-    initCursor
+    quickProblem,
 ) where
 
+import qualified Source
 import qualified Terminal
-
--- Position within the source code
-data Cursor = Cursor {
-    line :: Int,
-    column :: Int
-} deriving (Show, Eq)
-
--- Update position of the cursor as we iterate
-updateCursor :: Cursor -> Char -> Cursor
-updateCursor cursor c 
-    | c == '\n' = cursor { line = line cursor + 1, column = 1}
-    | otherwise = cursor { column = column cursor + 1}
-
-initCursor :: Cursor
-initCursor = Cursor { line = 1, column = 1}
 
 -- How severe is the issue?
 data ProblemClass = Error | Warning | Lint deriving (Show, Eq)
@@ -35,7 +19,11 @@ problemColor Lint = Terminal.Blue
 -- A `Problem` should provide enough detail to the programmer to solve it
 data Problem = Problem {
     cls :: ProblemClass,
-    cursor :: Cursor,
+    cursor :: Source.Cursor,
     message :: String,
-    hint :: Maybe String
+    hint :: Maybe String,
+    ref :: Maybe Source.Cursor -- if we need to link to another point in the code
 } deriving (Show, Eq)
+
+quickProblem :: ProblemClass -> Source.Cursor -> String -> Problem
+quickProblem cls crs msg = Problem cls crs msg Nothing Nothing
