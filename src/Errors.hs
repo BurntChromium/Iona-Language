@@ -5,16 +5,9 @@ module Errors (
 ) where
 
 import qualified Source
-import qualified Terminal
 
 -- How severe is the issue?
 data ProblemClass = Error | Warning | Lint deriving (Show, Eq)
-
--- Terminal color coding of issues
-problemColor :: ProblemClass -> Terminal.TermColor
-problemColor Error = Terminal.Red
-problemColor Warning = Terminal.Yellow
-problemColor Lint = Terminal.Blue
 
 -- A `Problem` should provide enough detail to the programmer to solve it
 data Problem = Problem {

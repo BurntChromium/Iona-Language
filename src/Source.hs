@@ -15,4 +15,3 @@ updateCursor cursor c
 
 initCursor :: Cursor
 initCursor = Cursor { line = 1, column = 1}
-
