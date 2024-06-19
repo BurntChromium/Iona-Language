@@ -8,7 +8,7 @@ import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
 
 -- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
-data Symbol = Comment | Identifier | Import | Path | With | EndStmt deriving (Show, Eq)
+data Symbol = Comment | NewLine | Identifier | Import | With | EndStmt deriving (Show, Eq)
 
 -- A token has its original string, its symbol, and where it is in the text
 data Token = Token {
@@ -37,6 +37,7 @@ lexer :: LexerState -> String -> LexerState
 lexer state [] = state -- Empty string => empty token list
 lexer state (c:cs) 
     | c == '#' = lexer (addTokenToLexer [c] Comment (csr state) state) cs
+    | c == '\n' = lexer (addTokenToLexer [c] NewLine (csr state) state) cs
     | isSpace c = lexer (advanceCursor state c) cs
     | c == ';' = lexer (addTokenToLexer [c] EndStmt (csr state) state) cs
     | isAlphaNum c = let (item, rest) = span isAlphaNum (c : cs) in lexer (addTokenToLexer item Identifier (csr state) state) rest
@@ -48,10 +49,14 @@ lexer state (c:cs)
 advanceCursor :: LexerState -> Char -> LexerState
 advanceCursor state c = state { csr = updateCursor (csr state) c }
 
+matchKeywords :: String -> Symbol
+matchKeywords "import" = Import
+matchKeywords "with" = With
+matchKeywords _ = Identifier
+
 addTokenToLexer :: String -> Symbol -> Cursor -> LexerState -> LexerState
 addTokenToLexer st sy cr old = do
-    -- Construct new token
-    let newToken = Token { str = st, sym = sy, pos = cr}
+    let newToken = if length st > 1 then Token { str = st, sym = matchKeywords st, pos = cr} else Token { str = st, sym = sy, pos = cr}
     -- Pull out data for easier addressing
     let oldTokens = tokens old
     -- Use advanceCursor to update lexer state
