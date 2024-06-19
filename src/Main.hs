@@ -4,7 +4,7 @@ import System.Environment
 import System.FilePath
 
 import qualified Terminal
-import qualified Lex
+import Lex
 
 main :: IO ()
 main :: IO() = do

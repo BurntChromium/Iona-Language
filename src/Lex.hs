@@ -3,7 +3,6 @@
 module Lex where
 
 import Data.Char
-import Debug.Trace (trace)
 
 import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
@@ -28,47 +27,54 @@ data LexerState = LexerState {
 initLexerState :: LexerState
 initLexerState = LexerState { csr = initCursor, tokens = [], errors = []}
 
+-- Helper function to create debug info
+debugInfo :: LexerState -> String -> String
+debugInfo state remainingInput =
+    "Current state: " ++ show state ++ ", Remaining input: " ++ take 10 remainingInput ++ "..."
+
 -- Run lexing by pattern matching
 lexer :: LexerState -> String -> LexerState
 lexer state [] = state -- Empty string => empty token list
 lexer state (c:cs) 
-    | isSpace c = 
-        let newState = advanceCursor c state
-        in trace (debugInfo newState cs) (lexer newState cs)
-    | c == ';' = 
-        let newState = addTokenToLexer [c] EndStmt (csr state) state
-        in trace (debugInfo newState cs) (lexer newState cs)
-    | otherwise = 
-        let newProblemList = quickProblem Error (csr state) ("unrecognized symbol: " ++ [c]) : errors state
-            newState = state { errors = newProblemList }
-        in trace (debugInfo newState cs) (lexer newState cs)
-
--- Helper function to create debug info
-debugInfo :: LexerState -> String -> String
-debugInfo state remainingInput = 
-    "Current state: " ++ show state ++ ", Remaining input: " ++ take 10 remainingInput ++ "..."
-
--- Run lexing by pattern matching
--- lexer :: LexerState -> String -> LexerState
--- lexer state [] = state -- Empty string => empty token list
--- lexer state (c:cs) 
---     | isSpace c = lexer (advanceCursor c state) cs
---     | c == ';' = lexer (addTokenToLexer [c] EndStmt (csr state) state) cs
---     | otherwise = do 
---         let newProblemList = quickProblem Error (csr state) ("unrecognized symbol: " ++ [c]) : errors state
---         lexer (state { errors = newProblemList}) cs
+    | c == '#' = lexer (addTokenToLexer [c] Comment (csr state) state) cs
+    | isSpace c = lexer (advanceCursor state c) cs
+    | c == ';' = lexer (addTokenToLexer [c] EndStmt (csr state) state) cs
+    | isAlphaNum c = let (item, rest) = span isAlphaNum (c : cs) in lexer (addTokenToLexer item Identifier (csr state) state) rest
+    | otherwise = do 
+        let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: " ++ [c])]
+        lexer (state { errors = newProblemList}) cs
 
 -- Utility to update the cursor in the lexer's state
-advanceCursor :: Char -> LexerState -> LexerState
-advanceCursor c state = state { csr = updateCursor (csr state) c } 
-    
+advanceCursor :: LexerState -> Char -> LexerState
+advanceCursor state c = state { csr = updateCursor (csr state) c }
+
 addTokenToLexer :: String -> Symbol -> Cursor -> LexerState -> LexerState
-addTokenToLexer st sy cr old = do 
+addTokenToLexer st sy cr old = do
     -- Construct new token
-    let newToken = Token { str = st, sym = sy, pos = cr} 
+    let newToken = Token { str = st, sym = sy, pos = cr}
     -- Pull out data for easier addressing
     let oldTokens = tokens old
     -- Use advanceCursor to update lexer state
-    let upState = if length st == 1 then advanceCursor (head st) old else  advanceCursor '-' old
+    let upState = foldl advanceCursor old st
     -- Append tokens
     upState { tokens = oldTokens ++ [newToken] }
+
+-- Save for later debugging
+-- Run lexing by pattern matching
+-- lexer :: LexerState -> String -> LexerState
+-- lexer state [] = state -- Empty string => empty token list
+-- lexer state (c:cs)
+--     | isSpace c =
+--         let newState = advanceCursor state c
+--         in trace (debugInfo newState cs) (lexer newState cs)
+--     | c == ';' =
+--         let newState = addTokenToLexer [c] EndStmt (csr state) state
+--         in trace (debugInfo newState cs) (lexer newState cs)
+--     | isAlphaNum c = do
+--         let (item, rest) = span isAlphaNum (c : cs) -- take while we have alpha-numerics
+--         let newState = addTokenToLexer item Identifier (csr state) state
+--         trace (debugInfo newState cs) (lexer newState rest)
+--     | otherwise =
+--         let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: " ++ [c])]
+--             newState = advanceCursor (state { errors = newProblemList }) '-'
+--         in trace (debugInfo newState cs) (lexer newState cs)
