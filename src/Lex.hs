@@ -1,5 +1,7 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 
+-- Note to self, debug trace is helpful for diagnosing infinite loops
+
 module Lex where
 
 import Data.Char
@@ -49,6 +51,7 @@ lexer state (c:cs)
 advanceCursor :: LexerState -> Char -> LexerState
 advanceCursor state c = state { csr = updateCursor (csr state) c }
 
+-- Given a string keyword, return the correct symbol
 matchKeywords :: String -> Symbol
 matchKeywords "import" = Import
 matchKeywords "with" = With
@@ -56,6 +59,7 @@ matchKeywords _ = Identifier
 
 addTokenToLexer :: String -> Symbol -> Cursor -> LexerState -> LexerState
 addTokenToLexer st sy cr old = do
+    -- For full words overwrite the symbol, but for single characters take what was given to us
     let newToken = if length st > 1 then Token { str = st, sym = matchKeywords st, pos = cr} else Token { str = st, sym = sy, pos = cr}
     -- Pull out data for easier addressing
     let oldTokens = tokens old
@@ -63,23 +67,3 @@ addTokenToLexer st sy cr old = do
     let upState = foldl advanceCursor old st
     -- Append tokens
     upState { tokens = oldTokens ++ [newToken] }
-
--- Save for later debugging
--- Run lexing by pattern matching
--- lexer :: LexerState -> String -> LexerState
--- lexer state [] = state -- Empty string => empty token list
--- lexer state (c:cs)
---     | isSpace c =
---         let newState = advanceCursor state c
---         in trace (debugInfo newState cs) (lexer newState cs)
---     | c == ';' =
---         let newState = addTokenToLexer [c] EndStmt (csr state) state
---         in trace (debugInfo newState cs) (lexer newState cs)
---     | isAlphaNum c = do
---         let (item, rest) = span isAlphaNum (c : cs) -- take while we have alpha-numerics
---         let newState = addTokenToLexer item Identifier (csr state) state
---         trace (debugInfo newState cs) (lexer newState rest)
---     | otherwise =
---         let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: " ++ [c])]
---             newState = advanceCursor (state { errors = newProblemList }) '-'
---         in trace (debugInfo newState cs) (lexer newState cs)
