@@ -1,5 +1,6 @@
 module Main where
 
+import Data.Time
 import System.Environment
 import System.FilePath
 
@@ -8,6 +9,7 @@ import Lex
 
 main :: IO ()
 main :: IO() = do
+    globalStartTime <- getCurrentTime
     args <- getArgs
     -- Need at least a file to compile
     if null args then
@@ -27,3 +29,7 @@ main :: IO() = do
     let lexerOutput = Lex.lexer Lex.initLexerState entryFile
     -- mapM_ print (Lex.tokens lexerOutput)
     mapM_ (putStrLn . Terminal.printError entryFile) (Lex.errors lexerOutput)
+    -- Get overall program runtime
+    globalStopTime <- getCurrentTime
+    putStr "compilation finished in "
+    print $ diffUTCTime globalStopTime globalStartTime
