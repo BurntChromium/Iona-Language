@@ -1,5 +1,5 @@
 module Terminal (
-    TermColor(..), 
+    TermColor(..),
     printColor,
     printError
 ) where
@@ -40,9 +40,12 @@ printError source err = do
     let allLines = lines source
     let l = line (cursor err) - 1 -- our cursor is 1 indexed, while allLines is 0 indexed
     let c = column (cursor err)
-    let selectedLines = sort (deduplicate [max 0 (l - 1), l, min (l + 1) (length selectedLines)])
-    let context = fmap (allLines !!) selectedLines
+    let selectedLines = sort (deduplicate [max 0 (l - 1), l, min (l + 1) (length allLines - 1)])
+    let context = fmap (\i -> (i + 1, allLines !! i)) selectedLines -- Add line numbers
+    -- Inject and dynamically format line numbers into context (weird padding, IDK came from an LLM and HLS complained when I un-padded it)
+    let formattedContext = fmap (\(n, lineStr) -> let lineNumStr = show n
+                                                      padding = replicate (4 - length lineNumStr) ' '
+                                                  in padding ++ lineNumStr ++ " | " ++ lineStr) context
+    let hintText = maybe "" ("\nhint: " ++) (hint err)
     -- Long string concatenation
-    printColor color (show (cls err)) ++ show (message err) ++ "at line " ++ show l ++ ", column " ++ show c ++ intercalate "\n" context ++ "\nhint: " ++ show (hint err)
-
-    
+    printColor color (show (cls err)) ++ ": " ++ message err ++ " at line " ++ show (l + 1) ++ ", column " ++ show c ++ "\n" ++ intercalate "\n" formattedContext ++ hintText ++ "\n"

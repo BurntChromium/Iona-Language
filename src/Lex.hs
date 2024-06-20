@@ -5,7 +5,6 @@
 module Lex where
 
 import Data.Char
-import Debug.Trace
 
 import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
@@ -69,9 +68,7 @@ isNumberLiteral c
 
 -- Run lexing by pattern matching on each character
 lexer :: LexerState -> String -> LexerState
-lexer state [] = do
-    let _ = trace "should terminate" False
-    state -- Empty string => empty token list
+lexer state [] = state
 lexer state (c:cs) 
    -- Single character symbols
     | c == '\n' = lexer (addTokenToLexer [c] NewLine (csr state) state) cs
@@ -89,7 +86,7 @@ lexer state (c:cs)
     -- Map alphanumerics -> keywords
     | isIdentifierChar c = let (item, rest) = span isIdentifierChar (c : cs) in lexer (addTokenToLexer item NumberLiteral (csr state) state) rest
     | otherwise = do 
-        let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: " ++ [c])]
+        let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: '" ++ [c] ++ "'")]
         lexer (state { errors = newProblemList}) cs
 
 -- Utility to update the cursor in the lexer's state

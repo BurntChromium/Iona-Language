@@ -25,5 +25,5 @@ main :: IO() = do
     putStrLn (entryFile ++ "\n")
     -- Run the lexer
     let lexerOutput = Lex.lexer Lex.initLexerState entryFile
-    mapM_ print (Lex.tokens lexerOutput)
-    mapM_ (print . Terminal.printError entryFile) (Lex.errors lexerOutput)
+    -- mapM_ print (Lex.tokens lexerOutput)
+    mapM_ (putStrLn . Terminal.printError entryFile) (Lex.errors lexerOutput)
