@@ -5,12 +5,30 @@
 module Lex where
 
 import Data.Char
+import Debug.Trace
 
 import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
 
 -- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
-data Symbol = Comment | NewLine | Identifier | Import | With | EndStmt deriving (Show, Eq)
+data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | In | NumberLiteral | EndStmt | Colon deriving (Show, Eq)
+
+-- Given a string keyword, return the correct symbol
+matchKeywords :: String -> Symbol
+matchKeywords "import" = Import
+matchKeywords "with" = With
+matchKeywords "let" = Let
+matchKeywords "mut" = Mut
+matchKeywords "struct" = Struct
+matchKeywords "enum" = Enum
+matchKeywords "is" = Is
+matchKeywords "derives" = Derives
+matchKeywords "alias" = Alias
+matchKeywords "fn" = FnDeclare
+matchKeywords "Fn" = FnObject
+matchKeywords "for" = For
+matchKeywords "in" = In
+matchKeywords _ = Identifier
 
 -- A token has its original string, its symbol, and where it is in the text
 data Token = Token {
@@ -34,15 +52,42 @@ debugInfo :: LexerState -> String -> String
 debugInfo state remainingInput =
     "Current state: " ++ show state ++ ", Remaining input: " ++ take 10 remainingInput ++ "..."
 
--- Run lexing by pattern matching
+-- Alpha numerics + underscores
+isIdentifierChar :: Char -> Bool
+isIdentifierChar c 
+    | isAlphaNum c = True
+    | c == '_' = True
+    | c == '.' = True
+    | otherwise = False
+
+-- Numbers and dots
+isNumberLiteral :: Char -> Bool
+isNumberLiteral c
+    | isDigit c = True
+    | c == '.' = True
+    | otherwise = False
+
+-- Run lexing by pattern matching on each character
 lexer :: LexerState -> String -> LexerState
-lexer state [] = state -- Empty string => empty token list
+lexer state [] = do
+    let _ = trace "should terminate" False
+    state -- Empty string => empty token list
 lexer state (c:cs) 
-    | c == '#' = lexer (addTokenToLexer [c] Comment (csr state) state) cs
+   -- Single character symbols
     | c == '\n' = lexer (addTokenToLexer [c] NewLine (csr state) state) cs
     | isSpace c = lexer (advanceCursor state c) cs
+    | c == '#' = lexer (addTokenToLexer [c] Comment (csr state) state) cs
     | c == ';' = lexer (addTokenToLexer [c] EndStmt (csr state) state) cs
-    | isAlphaNum c = let (item, rest) = span isAlphaNum (c : cs) in lexer (addTokenToLexer item Identifier (csr state) state) rest
+    | c == '=' = lexer (addTokenToLexer [c] Equals (csr state) state) cs
+    -- If colon, check if it's "::" or just ":"
+    | c == ':' = if head cs == ':' then
+        lexer (addTokenToLexer [c, head cs] FieldSep (csr state) state) (tail cs)
+    else
+        lexer (addTokenToLexer [c] Colon (csr state) state) cs
+    -- Get number literals
+    | isNumberLiteral c = let (item, rest) = span isNumberLiteral (c : cs) in lexer (addTokenToLexer item Identifier (csr state) state) rest
+    -- Map alphanumerics -> keywords
+    | isIdentifierChar c = let (item, rest) = span isIdentifierChar (c : cs) in lexer (addTokenToLexer item NumberLiteral (csr state) state) rest
     | otherwise = do 
         let newProblemList = errors state ++ [quickProblem Error (csr state) ("unrecognized symbol: " ++ [c])]
         lexer (state { errors = newProblemList}) cs
@@ -51,12 +96,7 @@ lexer state (c:cs)
 advanceCursor :: LexerState -> Char -> LexerState
 advanceCursor state c = state { csr = updateCursor (csr state) c }
 
--- Given a string keyword, return the correct symbol
-matchKeywords :: String -> Symbol
-matchKeywords "import" = Import
-matchKeywords "with" = With
-matchKeywords _ = Identifier
-
+-- Helper method to add a token to the lexer state
 addTokenToLexer :: String -> Symbol -> Cursor -> LexerState -> LexerState
 addTokenToLexer st sy cr old = do
     -- For full words overwrite the symbol, but for single characters take what was given to us

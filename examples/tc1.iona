@@ -1,2 +1,2 @@
-# Import some code
+# Import some basic math functions
 import math with pow sqrt;

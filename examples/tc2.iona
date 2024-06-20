@@ -1,0 +1,15 @@
+# Import some basic math functions
+import math with pow sqrt;
+
+# Define a 2 dimensional point
+struct Point2D = x float :: y float
+    is Public
+    derives Show Eq;
+
+# Euclidean distance in 2 dimensions
+fn euclidean_2d = p Point2D :: q Point2D :: float {
+    Props: Pure Public
+    let x_dist :: float = pow (minus p.x q.x) 2;
+    let y_dist :: float = pow (minus p.y q.y) 2;
+    return sqrt add x_dist y_dist; 
+}
