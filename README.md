@@ -48,14 +48,13 @@ The goal of contracts is to try and catch potential runtime errors at compile ti
 At least with pre- and post- conditions this is the same idea as [refinement types](https://en.wikipedia.org/wiki/Refinement_type), like Liquid Haskell.
 
 ```rs
-// Function with a (precondition) contract
-// If a contract does not evaluate to True, it errors (think of a contract like a "whitelist" of allowed inputs)
 fn div :: a int -> b int -> int {
     Properties: Pure Export
-    In: b != 0 -> "b must not be 0"
+    In: b != 0 -> "b must not be 0" 
     return a / b
 }
 ```
+The contract here specifies what properties the input must obey (it's a whitelist, not a blacklist).
 
 ## Compiler Features
 
