@@ -10,7 +10,7 @@ import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
 
 -- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
-data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | In | NumberLiteral | EndStmt | Colon | OpenParen | CloseParen | OpenScope | CloseScope deriving (Show, Eq)
+data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | In | NumberLiteral | EndStmt | Colon | OpenParen | CloseParen | OpenScope | CloseScope | Minus deriving (Show, Eq)
 
 -- Given a string keyword, return the correct symbol
 matchKeywords :: String -> Symbol
@@ -88,6 +88,7 @@ lexer state (c:cs)
     | c == ')' = lexer (addTokenToLexer [c] CloseParen (csr state) state) cs
     | c == '{' = lexer (addTokenToLexer [c] OpenScope (csr state) state) cs
     | c == '}' = lexer (addTokenToLexer [c] CloseScope (csr state) state) cs
+    | c == '-' = lexer (addTokenToLexer [c] Minus (csr state) state) cs
     -- If colon, check if it's "::" or just ":"
     | c == ':' = if head cs == ':' then
         lexer (addTokenToLexer [c, head cs] FieldSep (csr state) state) (tail cs)

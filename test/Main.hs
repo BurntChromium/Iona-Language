@@ -18,7 +18,8 @@ tests = TestList [
         testUpdateLexCursor2,
     TestLabel "add semicolon to lexer" testAddTokenToLexer,
     TestLabel "lex a comment statement" testLexCode1,
-    TestLabel "lex an import statement" testLexCode2
+    TestLabel "lex an import statement" testLexCode2,
+    TestLabel "lex an comment + import w/ newline" testLexCode3
     ]
 
 main = runTestTTAndExit tests
