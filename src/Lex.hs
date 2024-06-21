@@ -10,12 +10,15 @@ import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
 
 -- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
-data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | In | NumberLiteral | EndStmt | Colon | OpenParen | CloseParen | OpenScope | CloseScope | Minus deriving (Show, Eq)
+data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | IterableIn | NumberLiteral | EndStmt | Colon | OpenParen | CloseParen | OpenScope | CloseScope | Minus | Properties | Permissions | ContractIn | ContractOut | ContractInvariant deriving (Show, Eq)
 
 -- Given a string keyword, return the correct symbol
 matchKeywords :: String -> Symbol
 matchKeywords "import" = Import
 matchKeywords "with" = With
+matchKeywords "Invariant" = ContractInvariant
+matchKeywords "In" = ContractIn
+matchKeywords "Out" = ContractOut
 matchKeywords "let" = Let
 matchKeywords "mut" = Mut
 matchKeywords "struct" = Struct
@@ -26,7 +29,7 @@ matchKeywords "alias" = Alias
 matchKeywords "fn" = FnDeclare
 matchKeywords "Fn" = FnObject
 matchKeywords "for" = For
-matchKeywords "in" = In
+matchKeywords "in" = IterableIn -- note case difference: "In" == Contract, "in" == iterator
 matchKeywords word 
     | all isNumberLiteral word = NumberLiteral
     | otherwise = Identifier
