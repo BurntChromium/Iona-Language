@@ -27,7 +27,9 @@ matchKeywords "fn" = FnDeclare
 matchKeywords "Fn" = FnObject
 matchKeywords "for" = For
 matchKeywords "in" = In
-matchKeywords _ = Identifier
+matchKeywords word 
+    | all isNumberLiteral word = NumberLiteral
+    | otherwise = Identifier
 
 -- A token has its original string, its symbol, and where it is in the text
 data Token = Token {
@@ -66,6 +68,12 @@ isNumberLiteral c
     | c == '.' = True
     | otherwise = False
 
+-- For comments
+isNotNewLine :: Char -> Bool
+isNotNewLine c
+    | c == '\n' = False
+    | otherwise = True
+
 -- Run lexing by pattern matching on each character
 lexer :: LexerState -> String -> LexerState
 lexer state [] = state
@@ -73,7 +81,7 @@ lexer state (c:cs)
    -- Single character symbols
     | c == '\n' = lexer (addTokenToLexer [c] NewLine (csr state) state) cs
     | isSpace c = lexer (advanceCursor state c) cs -- do this AFTER newline checking to avoid having newlines eaten
-    | c == '#' = lexer (addTokenToLexer [c] Comment (csr state) state) cs
+    | c == '#' = let (item, rest) = span isNotNewLine  (c : cs) in lexer (addTokenToLexer item Comment (csr state) state) rest
     | c == ';' = lexer (addTokenToLexer [c] EndStmt (csr state) state) cs
     | c == '=' = lexer (addTokenToLexer [c] Equals (csr state) state) cs
     | c == '(' = lexer (addTokenToLexer [c] OpenParen (csr state) state) cs
@@ -101,7 +109,7 @@ advanceCursor state c = state { csr = updateCursor (csr state) c }
 addTokenToLexer :: String -> Symbol -> Cursor -> LexerState -> LexerState
 addTokenToLexer st sy cr old = do
     -- For full words overwrite the symbol, but for single characters take what was given to us
-    let newToken = if length st > 1 then Token { str = st, sym = matchKeywords st, pos = cr} else Token { str = st, sym = sy, pos = cr}
+    let newToken = if sy /= Comment && length st > 1 then Token { str = st, sym = matchKeywords st, pos = cr} else Token { str = st, sym = sy, pos = cr}
     -- Pull out data for easier addressing
     let oldTokens = tokens old
     -- Use advanceCursor to update lexer state
