@@ -10,7 +10,7 @@ import Data.Set (fromList, toList)
 import Errors (Problem(..), ProblemClass(..))
 import Source (Cursor(..))
 
--- Supported terminal colors
+-- | Supported terminal colors
 data TermColor = Red | Blue | Green | Yellow
 
 -- Emit ANSI code for each color
@@ -26,14 +26,14 @@ problemColor Error = Terminal.Red
 problemColor Warning = Terminal.Yellow
 problemColor Lint = Terminal.Blue
 
--- Wrap a given string in the ANSI codes (and reset afterwards)
+-- | Wrap a given string in the ANSI codes (and reset afterwards)
 printColor :: TermColor -> String -> String
 printColor color str = termColorToStr color ++ str ++ "\ESC[0m"
 
 deduplicate :: Ord a => [a] -> [a]
 deduplicate = toList . fromList
 
--- Nicely format an error into a string (messy imperative style, oh well)
+-- | Nicely format an error into a string (messy imperative style, oh well)
 printError :: String -> Problem -> String
 printError source err = do
     let color = problemColor (cls err)

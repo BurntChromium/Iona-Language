@@ -9,10 +9,10 @@ import Data.Char
 import Errors (Problem(..), ProblemClass(..), quickProblem)
 import Source (Cursor(..), updateCursor, initCursor)
 
--- A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
+-- | A symbol is the what most would consider a Token normally, but we "enrich" the token with additional data
 data Symbol = Comment | NewLine | Identifier | Import | With | Let | Mut | FieldSep | Struct | Enum | Equals | Bar | Is | Derives | Alias | FnDeclare | FnObject | Partial | For | IterableIn | NumberLiteral | EndStmt | Colon | OpenParen | CloseParen | OpenScope | CloseScope | Minus | Properties | Permissions | ContractIn | ContractOut | ContractInvariant deriving (Show, Eq)
 
--- Given a string keyword, return the correct symbol
+-- | Given a string keyword, return the correct symbol
 matchKeywords :: String -> Symbol
 matchKeywords "import" = Import
 matchKeywords "with" = With
@@ -34,14 +34,14 @@ matchKeywords word
     | all isNumberLiteral word = NumberLiteral
     | otherwise = Identifier
 
--- A token has its original string, its symbol, and where it is in the text
+-- | A token has its original string, its symbol, and where it is in the text
 data Token = Token {
     str :: String,
     sym :: Symbol,
     pos :: Cursor
 } deriving (Show, Eq)
 
--- We return both a list of tokens and of problems -> not all problems are fatal and we also want to recover from errors
+-- | We return both a list of tokens and of problems -> not all problems are fatal and we also want to recover from errors
 data LexerState = LexerState {
     csr :: Cursor,
     tokens :: [Token],
@@ -77,7 +77,7 @@ isNotNewLine c
     | c == '\n' = False
     | otherwise = True
 
--- Run lexing by pattern matching on each character
+-- | Run lexing by pattern matching on each character
 lexer :: LexerState -> String -> LexerState
 lexer state [] = state
 lexer state (c:cs) 

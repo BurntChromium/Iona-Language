@@ -16,6 +16,7 @@ main :: IO() = do
         error (Terminal.printColor Terminal.Red "error: not enough arguments (expected a file path)")
     else
         putStrLn "> Iona compiler version 0.1"
+    -- Extract arguments
     let filepath = head args
     -- Assert that we're compiling an Iona language file
     if snd (splitExtension filepath) /= ".iona" then

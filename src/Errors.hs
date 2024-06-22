@@ -6,10 +6,10 @@ module Errors (
 
 import qualified Source
 
--- How severe is the issue?
+-- | How severe is the issue?
 data ProblemClass = Error | Warning | Lint deriving (Show, Eq)
 
--- A `Problem` should provide enough detail to the programmer to solve it
+-- | A `Problem` should provide enough detail to the programmer to solve it
 data Problem = Problem {
     cls :: ProblemClass,
     cursor :: Source.Cursor,
