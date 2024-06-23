@@ -4,6 +4,7 @@ import Test.HUnit
 
 import TestSource
 import TestLex
+import TestParse
 
 tests = TestList [
     -- Terminal
@@ -19,7 +20,9 @@ tests = TestList [
     TestLabel "add semicolon to lexer" testAddTokenToLexer,
     TestLabel "lex a comment statement" testLexCode1,
     TestLabel "lex an import statement" testLexCode2,
-    TestLabel "lex an comment + import w/ newline" testLexCode3
+    TestLabel "lex an comment + import w/ newline" testLexCode3,
+    TestLabel "span until on import" testSpanUntil1,
+    TestLabel "span until on import with error" testSpanUntil2
     ]
 
 main = runTestTTAndExit tests

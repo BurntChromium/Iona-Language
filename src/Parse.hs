@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module Parse where
 
 import Text.Read(readEither)
@@ -5,8 +7,63 @@ import Text.Read(readEither)
 import Lex (Token(..), Symbol(..))
 import Errors(Problem(..), ProblemClass(..), quickProblem)
 
+-- ==================== Data Schema ====================
+
 -- | Built-in data types
-data PrimitiveDataType = PrimitiveInt Int | PrimitiveFloat Float | PrimitiveStr String | PrimitiveBool Bool deriving (Show, Eq)
+data PrimitiveDataType = 
+    PrimitiveInt Int | 
+    PrimitiveFloat Float | 
+    PrimitiveStr String | 
+    PrimitiveBool Bool 
+    deriving (Show, Eq)
+
+-- | Valid properties for a variable
+data VariableProperty = Mutable | ThreadSafe deriving (Show, Eq)
+
+-- | Valid properties for a function
+data FunctionProperty = Pure | Public deriving (Show, Eq)
+
+-- | What behaviors ("side effects") can a function perform?
+data Permission = ReadFile | WriteFile | Custom String deriving (Show, Eq)
+
+-- | Core data for a variable
+data Variable = Variable {
+    name :: String,
+    vType :: PrimitiveDataType, -- `type` is a reserved word in Haskell
+    vProps :: [VariableProperty]
+} deriving (Show, Eq)
+
+type Scope = (String, [String])
+
+-- | AST nodes: only some are true (recursive) trees because statements like import or property lists are flat
+data AST = 
+    Import Scope ImportStmt | 
+    DeclareFn Scope Function [AST] | 
+    DeclareVar Scope Variable [AST] | 
+    Expression Scope ExpressionStmt | 
+    FnProperty Scope [FunctionProperty] | 
+    FnPermission Scope [Permission] 
+    deriving (Show, Eq)
+
+data ImportStmt = NodeImport {
+    file :: String,
+    items :: Maybe [String]
+} deriving (Show, Eq)
+
+-- | Core data for a function
+data Function = Function {
+    name :: String,
+    arguments :: [Variable],
+    returnType :: PrimitiveDataType,
+    fProps :: [FunctionProperty],
+    permissions :: [Permission]
+} deriving (Show, Eq)
+
+data ExpressionStmt = Literal PrimitiveDataType | Method String [ExpressionStmt] deriving (Show, Eq)
+
+-- ==================== Parsers ====================
+
+type Parser = [Token] -> Either Problem (AST, [Token])
 
 -- Handle number literals (caller is assumed to only invoke on tokens of the right symbol type)
 -- We treat anything with a "." in it as a float, otherwise it's an integer
@@ -22,28 +79,13 @@ parseNumberLiteral t
             Right i -> Right (PrimitiveInt i)
             Left err  -> Left (quickProblem Error (pos t) ("Invalid integer literal: " ++ err))
 
--- Iterate over a list of tokens until an element is found
--- This is sort of like `span` but doesn't require writing a custom predicate for matching generic patterns
--- Example: `let stmt = takeUntil tokens [Identifier, NumberLiteral] EndStmt`
--- `[Token]` is the input stream of tokens
--- `[Symbol]` is a list of valid "middle values" (if empty, accept ALL inputs)
--- `Symbol` is the terminal value
-takeUntil :: [Token] -> [Symbol] -> Symbol -> Either Problem [Token]
-takeUntil [] _ _ = Right []  -- If no tokens, return an empty list
-takeUntil (t:ts) acceptable terminal
-  | sym t == terminal = Right []  -- Stop if we hit the terminal symbol
-    -- if all acceptable, or if current token is acceptable, then
-  | null acceptable || sym t `elem` acceptable = do
-      -- Include the token and continue
-      rest <- takeUntil ts acceptable terminal
-      return (t : rest)
-  | otherwise =
-      -- Create a problem for the unexpected token
-        let problem = Problem {
-            cls = Error,
-            cursor = pos t,
-            message = "Unexpected token: " ++ str t,
-            hint = Just $ "Expected one of: " ++ show acceptable ++ " or " ++ show terminal,
-            ref = Nothing
-        }
-        in Left problem
+-- ==================== Utilities ====================
+
+-- TODO: replace list with sequence so I can push to the back more efficiently
+-- | A modification of `span` that terminates on a *specific* criteria instead of anything outside the predicate
+spanUntil :: ([a], [a]) -> (a -> Bool) -> (a -> Bool) -> Either a ([a], [a])
+spanUntil stream predicate terminal 
+    | null (fst stream) = Right stream
+    | terminal (head (fst stream)) = Right (tail (fst stream), snd stream ++ [head (fst stream)])
+    | predicate (head (fst stream)) = spanUntil (tail (fst stream), snd stream ++ [head (fst stream)]) predicate terminal
+    | otherwise = Left (head (fst stream))
