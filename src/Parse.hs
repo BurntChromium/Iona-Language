@@ -37,7 +37,7 @@ data Variable = Variable {
     vProps :: [VariableProperty]
 } deriving (Show, Eq)
 
-type Scope = (String, [String])
+type Scope = String
 
 -- | AST nodes: only some are true (recursive) trees because statements like import or property lists are flat
 data AST =
