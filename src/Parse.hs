@@ -8,7 +8,7 @@ import Control.Monad (void)
 import Data.Maybe (maybeToList)
 import Text.Read(readEither)
 
-import Lex (Token(..), Symbol(..))
+import SharedTypes (Token(..), Symbol(..))
 import Errors(Problem(..), ProblemClass(..), quickProblem)
 
 -- ==================== Data Schema ====================
