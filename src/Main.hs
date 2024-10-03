@@ -1,8 +1,10 @@
 module Main where
 
+import Data.Text (pack)
 import Data.Time
 import System.Environment
 import System.FilePath
+import Text.Megaparsec (parse, errorBundlePretty)
 
 import qualified Terminal
 import Parse
@@ -27,13 +29,12 @@ main :: IO() = do
     putStrLn "compiling this code: "
     putStrLn (entryFile ++ "\n")
     -- Run the parser
-    case Parse.parseProgram entryFile of
-        Left err -> putStrLn $ Parse.errorBundlePretty err
-        Right _ -> putStrLn "Parsing successful!"
-    -- Run the lexer
-    -- let lexerOutput = Lex.lexer Lex.initLexerState entryFile
-    -- mapM_ print (Lex.tokens lexerOutput)
-    -- mapM_ (putStrLn . Terminal.printError entryFile) (Lex.errors lexerOutput)
+    let result = parse pIona filepath (pack entryFile)
+    case result of
+        Left err -> putStrLn ("Parse error: " ++ errorBundlePretty err)
+        Right ast -> do
+            putStrLn "Parsing successful!"
+            print ast
     -- Get overall program runtime
     globalStopTime <- getCurrentTime
     putStr "compilation finished in "

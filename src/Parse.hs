@@ -1,187 +1,178 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Parse where
 
-import Control.Monad (void)
-import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Data.Void
+import Data.Text (Text)
+import qualified Data.Text as T
 
-type Parser = Parsec Void String
+type Parser = Parsec Void Text
+
+-- AST for Iona Lang
+data IonaDecl
+  = ImportDecl Text [Text]
+  | StructDecl Text [(Text, Text)] [Text]
+  | EnumDecl Text [(Text, Maybe Text)] [Text]
+  | LetDecl Text Text [Text] Text
+  | FuncDecl Text [(Text, Text)] Text [Text] [Text] [Text] [IonaStmt]
+  deriving (Show)
+
+data IonaStmt
+  = IfStmt IonaExpr [IonaStmt] (Maybe [IonaStmt])
+  | ForStmt Text IonaExpr [IonaStmt]
+  | ReturnStmt IonaExpr
+  | ExprStmt IonaExpr
+  deriving (Show)
+
+data IonaExpr
+  = Var Text
+  | IntLit Int
+  | StrLit Text
+  | FuncCall Text [IonaExpr]
+  deriving (Show)
 
 -- Lexer
-
-spaceConsumer :: Parser ()
-spaceConsumer = L.space space1 (L.skipLineComment "#") empty
+sc :: Parser ()
+sc = L.space space1 (L.skipLineComment "#") empty
 
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme spaceConsumer
+lexeme = L.lexeme sc
 
-symbol :: String -> Parser String
-symbol = L.symbol spaceConsumer
+symbol :: Text -> Parser Text
+symbol = L.symbol sc
 
-identifier :: Parser String
-identifier = lexeme $ (:) <$> letterChar <*> many alphaNumChar
+identifier :: Parser Text
+identifier = lexeme $ T.pack <$> ((:) <$> letterChar <*> many alphaNumChar)
 
-reservedWords :: [String]
-reservedWords = ["import", "with", "struct", "enum", "alias", "let", "fn", "for", "in", "if", "elif", "else", "return"]
+-- Parsing basic elements
+pType :: Parser Text
+pType = identifier
 
-reserved :: String -> Parser ()
-reserved word = lexeme $ string word *> notFollowedBy alphaNumChar
+-- Parsing a struct field: fieldName followed by its type, separated by a space
+pField :: Parser (Text, Text)
+pField = do
+  name <- identifier
+  typ <- lexeme identifier  -- Expect a space between field name and type
+  return (name, typ)
 
--- Basic Parsers
+-- Parsing imports
+pImport :: Parser IonaDecl
+pImport = do
+  _ <- symbol "import"
+  file <- identifier
+  _ <- symbol "with"
+  imports <- many identifier
+  _ <- symbol ";"
+  return $ ImportDecl file imports
 
-semicolon :: Parser String
-semicolon = symbol ";"
+-- Parsing structs
+pStruct :: Parser IonaDecl
+pStruct = do
+  _ <- symbol "struct"
+  name <- identifier
+  _ <- symbol "="
+  fields <- pField `sepBy` symbol "::"
+  properties <- many identifier
+  _ <- symbol ";"
+  return $ StructDecl name fields properties
 
-comma :: Parser String
-comma = symbol ","
+-- Parsing enums
+pEnum :: Parser IonaDecl
+pEnum = do
+  _ <- symbol "enum"
+  name <- identifier
+  _ <- symbol "="
+  variants <- variant `sepBy` symbol "|"
+  properties <- many identifier
+  _ <- symbol ";"
+  return $ EnumDecl name variants properties
+  where
+    variant = do
+      varName <- identifier
+      typ <- optional pType
+      return (varName, typ)
 
-doubleColon :: Parser String
-doubleColon = symbol "::"
+-- Parsing let bindings
+pLet :: Parser IonaDecl
+pLet = do
+  _ <- symbol "let"
+  name <- identifier
+  _ <- symbol "::"
+  typ <- pType
+  properties <- many (symbol "::" *> identifier)
+  _ <- symbol "="
+  value <- identifier
+  _ <- symbol ";"
+  return $ LetDecl name typ properties value
 
--- Imports
+-- Parsing function definitions
+pFunc :: Parser IonaDecl
+pFunc = do
+  _ <- symbol "fn"
+  name <- identifier
+  args <- pField `sepBy` symbol "::"
+  _ <- symbol "::"
+  retType <- pType
+  stmts <- pBlock
+  return $ FuncDecl name args retType [] [] [] stmts
 
-importParser :: Parser ()
-importParser = do
-  reserved "import"
-  _ <- identifier
-  reserved "with"
-  _ <- sepBy1 identifier (symbol " ")
-  void semicolon
+pBlock :: Parser [IonaStmt]
+pBlock = between (symbol "{") (symbol "}") (many pStmt)
 
--- Types
+pStmt :: Parser IonaStmt
+pStmt = choice
+  [ pIfStmt
+  , pForStmt
+  , pReturnStmt
+  , ExprStmt <$> pExpr
+  ]
 
-typeParser :: Parser String
-typeParser = identifier
+-- If statement
+pIfStmt :: Parser IonaStmt
+pIfStmt = do
+  _ <- symbol "if"
+  cond <- pExpr
+  stmts <- pBlock
+  elseStmts <- optional (symbol "else" *> pBlock)
+  return $ IfStmt cond stmts elseStmts
 
-structParser :: Parser ()
-structParser = do
-  reserved "struct"
-  _ <- identifier
-  symbol "="
-  _ <- sepBy1 (do
-    fieldName <- identifier
-    fieldType <- typeParser
-    return (fieldName, fieldType)) doubleColon
-  void semicolon
+-- For loop
+pForStmt :: Parser IonaStmt
+pForStmt = do
+  _ <- symbol "for"
+  var <- identifier
+  _ <- symbol "in"
+  iter <- pExpr
+  stmts <- pBlock
+  return $ ForStmt var iter stmts
 
-enumParser :: Parser ()
-enumParser = do
-  reserved "enum"
-  _ <- identifier
-  symbol "="
-  _ <- sepBy1 (do
-    variantName <- identifier
-    variantType <- optional typeParser
-    return (variantName, variantType)) (symbol "|")
-  void semicolon
+-- Return statement
+pReturnStmt :: Parser IonaStmt
+pReturnStmt = do
+  _ <- symbol "return"
+  expr <- pExpr
+  _ <- symbol ";"
+  return $ ReturnStmt expr
 
-aliasParser :: Parser ()
-aliasParser = do
-  reserved "alias"
-  _ <- identifier
-  symbol "="
-  _ <- typeParser
-  void semicolon
+-- Expression parsing
+pExpr :: Parser IonaExpr
+pExpr = choice
+  [ Var <$> identifier
+  , IntLit <$> lexeme L.decimal
+  , StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"')))
+  , pFuncCall
+  ]
 
--- Objects
+pFuncCall :: Parser IonaExpr
+pFuncCall = do
+  name <- identifier
+  args <- between (symbol "(") (symbol ")") (pExpr `sepBy` symbol ",")
+  return $ FuncCall name args
 
-objectParser :: Parser ()
-objectParser = do
-  reserved "let"
-  _ <- identifier
-  doubleColon
-  _ <- typeParser
-  _ <- optional (do
-    doubleColon
-    sepBy1 identifier (symbol " "))
-  symbol "="
-  _ <- many (noneOf ";")
-  void semicolon
+-- Entry point for the parser
+pIona :: Parser [IonaDecl]
+pIona = many (sc *> choice [pImport, pStruct, pEnum, pLet, pFunc] <* sc)
 
--- Containers
-
-containerParser :: Parser ()
-containerParser = do
-  reserved "let"
-  _ <- identifier
-  doubleColon
-  _ <- choice [
-    try $ string "Tuple" *> between (symbol "[") (symbol "]") (sepBy1 (fmap return typeParser) comma),
-    try $ string "List" *> between (symbol "[") (symbol "]") (fmap return typeParser),
-    try $ string "Map" *> between (symbol "[") (symbol "]") (do
-      keyType <- typeParser
-      comma
-      valueType <- typeParser
-      return [keyType, valueType])
-    ]
-  _ <- optional (doubleColon *> identifier)
-  symbol "="
-  _ <- between (symbol "[") (symbol "]") (sepBy (many (noneOf ",]")) comma)
-  void semicolon
-  
--- Functions
-
-functionParser :: Parser ()
-functionParser = do
-  reserved "fn"
-  _ <- identifier
-  symbol "="
-  _ <- sepBy1 (do
-    argName <- identifier
-    argType <- typeParser
-    return (argName, argType)) doubleColon
-  _ <- typeParser -- return type
-  void $ between (symbol "{") (symbol "}") (many (noneOf "}"))
-
--- Iteration
-
-forLoopParser :: Parser ()
-forLoopParser = do
-  reserved "for"
-  _ <- identifier
-  reserved "in"
-  _ <- (try $ reserved "range" *> many (noneOf "{")) <|> identifier
-  void $ between (symbol "{") (symbol "}") (many (noneOf "}"))
-
--- Conditionals
-
-conditionalParser :: Parser ()
-conditionalParser = do
-  reserved "if"
-  _ <- many (noneOf "{")
-  _ <- between (symbol "{") (symbol "}") (many (noneOf "}"))
-  _ <- optional (do
-    reserved "elif"
-    _ <- many (noneOf "{")
-    void $ between (symbol "{") (symbol "}") (many (noneOf "}")))
-  _ <- optional (do
-    reserved "else"
-    void $ between (symbol "{") (symbol "}") (many (noneOf "}")))
-  return ()
-  
--- Main Parser
-
-programParser :: Parser ()
-programParser = do
-  _ <- many (choice [
-    try importParser,
-    try structParser,
-    try enumParser,
-    try aliasParser,
-    try objectParser,
-    try containerParser,
-    try functionParser,
-    try forLoopParser,
-    try conditionalParser
-    ])
-  eof
-
--- Parse function
-
-parseProgram :: String -> Either (ParseErrorBundle String Void) ()
-parseProgram = parse programParser ""
