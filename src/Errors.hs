@@ -2,7 +2,7 @@ module Errors (
     ProblemClass(..),
     Problem(..),
     quickProblem,
-    parseError
+    parserError
 ) where
 
 import SharedTypes (Token(..))
@@ -23,5 +23,5 @@ data Problem = Problem {
 quickProblem :: ProblemClass -> Source.Cursor -> String -> Problem
 quickProblem cls crs msg = Problem cls crs msg Nothing Nothing
 
-parseError :: Token -> String -> Problem
-parseError tok = quickProblem Error (pos tok)
+parserError :: Token -> String -> Problem
+parserError tok = quickProblem Error (pos tok)

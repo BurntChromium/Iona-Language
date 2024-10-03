@@ -70,7 +70,8 @@ executable iona-compiler
         mtl, 
         containers,
         time,
-        hashable
+        hashable,
+        megaparsec>=9.6.1
 
     -- Directories containing source files.
     hs-source-dirs:   src

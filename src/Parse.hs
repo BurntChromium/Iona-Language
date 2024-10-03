@@ -3,13 +3,12 @@
 
 module Parse where
 
-import Control.Applicative
-import Control.Monad (void)
-import Data.Maybe (maybeToList)
-import Text.Read(readEither)
+import Text.Megaparsec
+import Data.Void
+import Control.Monad.Writer
 
-import SharedTypes (Token(..), Symbol(..))
-import Errors(Problem(..), ProblemClass(..), quickProblem)
+import qualified SharedTypes as Core
+import Errors(Problem(..), ProblemClass(..), parserError)
 
 -- ==================== Data Schema ====================
 
@@ -41,12 +40,12 @@ type Scope = String
 
 -- | AST nodes: only some are true (recursive) trees because statements like import or property lists are flat
 data AST =
-    Import Scope ImportStmt |
-    DeclareFn Scope Function [AST] |
-    DeclareVar Scope Variable [AST] |
-    Expression Scope ExpressionStmt |
-    FnProperty Scope [FunctionProperty] |
-    FnPermission Scope [Permission]
+    Import ImportStmt |
+    DeclareFn Function |
+    DeclareVar Variable |
+    Expression ExpressionStmt |
+    FnProperty [FunctionProperty] |
+    FnPermission [Permission]
     deriving (Show, Eq)
 
 data ImportStmt = NodeImport {
@@ -67,59 +66,43 @@ data ExpressionStmt = Literal PrimitiveDataType | Method String [ExpressionStmt]
 
 -- ==================== Parsers ====================
 
--- | A parser can return multiple types, a Variable, an AST, etc.
-type Parser a = [Token] -> Either Problem (a, [Token])
+-- Define Parser type for tokens
+type Parser = ParsecT Void [Core.Token] (Writer [Problem])
 
--- Parse a token against a predicate
-tokenSatisfying :: (Token -> Bool) -> Parser Token
-tokenSatisfying pred = Parser $ \case
-    t:ts | pred t -> Right (t, ts)
-    t:ts | not (pred t) -> Left quickProblem Error (pos t) ("unexpected token: " ++ str t)
 
--- | Flipped version of the <$> (fmap) operator 
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip (<$>)
+symbol :: Core.Symbol -> Parser Core.Token
+symbol sym = token testToken Nothing
+  where
+    testToken t = if sym == Core.sym t then Just t else Nothing 
 
--- Parse identifier token and return the string
-parseIdentifier :: Parser String
-parseIdentifier = tokenSatisfying (\t -> sym t == Identifier) <&> str
+-- Define the variable declaration parser
+parseVarDecl :: Parser AST
+parseVarDecl = do
+    -- Expect the 'let' keyword
+    _ <- symbol Core.Let
+    
+    -- Expect an identifier for the variable name
+    varToken <- symbol Core.Identifier
+    let varName = Core.str varToken
+    
+    -- Expect the '::' field separator
+    _ <- symbol Core.FieldSep
+    
+    -- Expect an identifier for the variable type
+    typeToken <- symbol Core.Identifier
+    let varType = Core.str typeToken
+    
+    -- Optionally parse additional properties as identifiers
+    properties <- many (Core.str <$> symbol Core.Identifier)
+    
+    -- Expect the '=' sign (we just match it but don't consume the rest here)
+    _ <- symbol Core.Equals
 
--- Parse a symbol, but just checking instead of returning
-parseSymbol :: Symbol -> Parser ()
-parseSymbol s = tokenSatisfying (\t -> sym t == s)
+    let output = Variable (varName varType properties)
+    
+    -- Construct and return the variable declaration
+    return $ DeclareVar output
 
-option :: a -> Parser a -> Parser a
-option fallback parser = parser <|> pure fallback
-
-parseSome :: Parser a -> Parser [a]
-parseSome parser = (:) <$> parser <*> many parser
-
-parseMany :: Parser a -> Parser [a]
-parseMany parser = some parser <|> pure []
-
--- Handle number literals (caller is assumed to only invoke on tokens of the right symbol type)
--- We treat anything with a "." in it as a float, otherwise it's an integer
--- TODO: we probably want `Parser = Either [Problem] AST` and this should return Parser
-parseNumberLiteral :: Token -> Either Problem PrimitiveDataType
-parseNumberLiteral t
-    | '.' `elem` str t =
-        case readEither (str t) :: Either String Float of
-            Right f -> Right (PrimitiveFloat f)
-            Left err -> Left (quickProblem Error (pos t) ("Invalid float literal: " ++ err))
-    | otherwise =
-        case readEither (str t) :: Either String Int of
-            Right i -> Right (PrimitiveInt i)
-            Left err  -> Left (quickProblem Error (pos t) ("Invalid integer literal: " ++ err))
-
-parseVariableDeclaration :: Parser Variable
-parseVariableDeclaration = do
-    void $ symbol VarDeclare
-    name <- identifier
-    void $ symbol FieldSep
-    vType <- dataType
-    vProps <- option [] (parseSymbol FieldSep *> many identifier)
-    void $ parseSymbol Equals
-    return $ Variable name vType (map parseVariableProperty vProps)
 
 -- ==================== Utilities ====================
 
