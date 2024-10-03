@@ -5,7 +5,7 @@ import System.Environment
 import System.FilePath
 
 import qualified Terminal
-import Lex
+import Parse
 
 main :: IO ()
 main :: IO() = do
@@ -26,10 +26,14 @@ main :: IO() = do
     entryFile <- readFile filepath
     putStrLn "compiling this code: "
     putStrLn (entryFile ++ "\n")
+    -- Run the parser
+    case Parse.parseProgram entryFile of
+        Left err -> putStrLn $ Parse.errorBundlePretty err
+        Right _ -> putStrLn "Parsing successful!"
     -- Run the lexer
-    let lexerOutput = Lex.lexer Lex.initLexerState entryFile
-    mapM_ print (Lex.tokens lexerOutput)
-    mapM_ (putStrLn . Terminal.printError entryFile) (Lex.errors lexerOutput)
+    -- let lexerOutput = Lex.lexer Lex.initLexerState entryFile
+    -- mapM_ print (Lex.tokens lexerOutput)
+    -- mapM_ (putStrLn . Terminal.printError entryFile) (Lex.errors lexerOutput)
     -- Get overall program runtime
     globalStopTime <- getCurrentTime
     putStr "compilation finished in "

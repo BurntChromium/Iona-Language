@@ -1,116 +1,187 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Parse where
 
-import Text.Megaparsec
+import Control.Monad (void)
 import Data.Void
-import Control.Monad.Writer
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as L
 
-import qualified SharedTypes as Core
-import Errors(Problem(..), ProblemClass(..), parserError)
+type Parser = Parsec Void String
 
--- ==================== Data Schema ====================
+-- Lexer
 
--- | Built-in data types
-data PrimitiveDataType =
-    PrimitiveInt Int |
-    PrimitiveFloat Float |
-    PrimitiveStr String |
-    PrimitiveBool Bool
-    deriving (Show, Eq)
+spaceConsumer :: Parser ()
+spaceConsumer = L.space space1 (L.skipLineComment "#") empty
 
--- | Valid properties for a variable
-data VariableProperty = Mutable | ThreadSafe deriving (Show, Eq)
+lexeme :: Parser a -> Parser a
+lexeme = L.lexeme spaceConsumer
 
--- | Valid properties for a function
-data FunctionProperty = Pure | Public deriving (Show, Eq)
+symbol :: String -> Parser String
+symbol = L.symbol spaceConsumer
 
--- | What behaviors ("side effects") can a function perform?
-data Permission = ReadFile | WriteFile | Custom String deriving (Show, Eq)
+identifier :: Parser String
+identifier = lexeme $ (:) <$> letterChar <*> many alphaNumChar
 
--- | Core data for a variable
-data Variable = Variable {
-    name :: String,
-    vType :: PrimitiveDataType, -- `type` is a reserved word in Haskell
-    vProps :: [VariableProperty]
-} deriving (Show, Eq)
+reservedWords :: [String]
+reservedWords = ["import", "with", "struct", "enum", "alias", "let", "fn", "for", "in", "if", "elif", "else", "return"]
 
-type Scope = String
+reserved :: String -> Parser ()
+reserved word = lexeme $ string word *> notFollowedBy alphaNumChar
 
--- | AST nodes: only some are true (recursive) trees because statements like import or property lists are flat
-data AST =
-    Import ImportStmt |
-    DeclareFn Function |
-    DeclareVar Variable |
-    Expression ExpressionStmt |
-    FnProperty [FunctionProperty] |
-    FnPermission [Permission]
-    deriving (Show, Eq)
+-- Basic Parsers
 
-data ImportStmt = NodeImport {
-    file :: String,
-    items :: [String]
-} deriving (Show, Eq)
+semicolon :: Parser String
+semicolon = symbol ";"
 
--- | Core data for a function
-data Function = Function {
-    name :: String,
-    arguments :: [Variable],
-    returnType :: PrimitiveDataType,
-    fProps :: [FunctionProperty],
-    permissions :: [Permission]
-} deriving (Show, Eq)
+comma :: Parser String
+comma = symbol ","
 
-data ExpressionStmt = Literal PrimitiveDataType | Method String [ExpressionStmt] deriving (Show, Eq)
+doubleColon :: Parser String
+doubleColon = symbol "::"
 
--- ==================== Parsers ====================
+-- Imports
 
--- Define Parser type for tokens
-type Parser = ParsecT Void [Core.Token] (Writer [Problem])
+importParser :: Parser ()
+importParser = do
+  reserved "import"
+  _ <- identifier
+  reserved "with"
+  _ <- sepBy1 identifier (symbol " ")
+  void semicolon
 
+-- Types
 
-symbol :: Core.Symbol -> Parser Core.Token
-symbol sym = token testToken Nothing
-  where
-    testToken t = if sym == Core.sym t then Just t else Nothing 
+typeParser :: Parser String
+typeParser = identifier
 
--- Define the variable declaration parser
-parseVarDecl :: Parser AST
-parseVarDecl = do
-    -- Expect the 'let' keyword
-    _ <- symbol Core.Let
-    
-    -- Expect an identifier for the variable name
-    varToken <- symbol Core.Identifier
-    let varName = Core.str varToken
-    
-    -- Expect the '::' field separator
-    _ <- symbol Core.FieldSep
-    
-    -- Expect an identifier for the variable type
-    typeToken <- symbol Core.Identifier
-    let varType = Core.str typeToken
-    
-    -- Optionally parse additional properties as identifiers
-    properties <- many (Core.str <$> symbol Core.Identifier)
-    
-    -- Expect the '=' sign (we just match it but don't consume the rest here)
-    _ <- symbol Core.Equals
+structParser :: Parser ()
+structParser = do
+  reserved "struct"
+  _ <- identifier
+  symbol "="
+  _ <- sepBy1 (do
+    fieldName <- identifier
+    fieldType <- typeParser
+    return (fieldName, fieldType)) doubleColon
+  void semicolon
 
-    let output = Variable (varName varType properties)
-    
-    -- Construct and return the variable declaration
-    return $ DeclareVar output
+enumParser :: Parser ()
+enumParser = do
+  reserved "enum"
+  _ <- identifier
+  symbol "="
+  _ <- sepBy1 (do
+    variantName <- identifier
+    variantType <- optional typeParser
+    return (variantName, variantType)) (symbol "|")
+  void semicolon
 
+aliasParser :: Parser ()
+aliasParser = do
+  reserved "alias"
+  _ <- identifier
+  symbol "="
+  _ <- typeParser
+  void semicolon
 
--- ==================== Utilities ====================
+-- Objects
 
--- TODO: replace list with sequence so I can push to the back more efficiently
--- | A modification of `span` that terminates on a *specific* criteria instead of anything outside the predicate
-spanUntil :: ([a], [a]) -> (a -> Bool) -> (a -> Bool) -> Either a ([a], [a])
-spanUntil stream predicate terminal
-    | null (fst stream) = Right stream
-    | terminal (head (fst stream)) = Right (tail (fst stream), snd stream ++ [head (fst stream)])
-    | predicate (head (fst stream)) = spanUntil (tail (fst stream), snd stream ++ [head (fst stream)]) predicate terminal
-    | otherwise = Left (head (fst stream))
+objectParser :: Parser ()
+objectParser = do
+  reserved "let"
+  _ <- identifier
+  doubleColon
+  _ <- typeParser
+  _ <- optional (do
+    doubleColon
+    sepBy1 identifier (symbol " "))
+  symbol "="
+  _ <- many (noneOf ";")
+  void semicolon
+
+-- Containers
+
+containerParser :: Parser ()
+containerParser = do
+  reserved "let"
+  _ <- identifier
+  doubleColon
+  _ <- choice [
+    try $ string "Tuple" *> between (symbol "[") (symbol "]") (sepBy1 (fmap return typeParser) comma),
+    try $ string "List" *> between (symbol "[") (symbol "]") (fmap return typeParser),
+    try $ string "Map" *> between (symbol "[") (symbol "]") (do
+      keyType <- typeParser
+      comma
+      valueType <- typeParser
+      return [keyType, valueType])
+    ]
+  _ <- optional (doubleColon *> identifier)
+  symbol "="
+  _ <- between (symbol "[") (symbol "]") (sepBy (many (noneOf ",]")) comma)
+  void semicolon
+  
+-- Functions
+
+functionParser :: Parser ()
+functionParser = do
+  reserved "fn"
+  _ <- identifier
+  symbol "="
+  _ <- sepBy1 (do
+    argName <- identifier
+    argType <- typeParser
+    return (argName, argType)) doubleColon
+  _ <- typeParser -- return type
+  void $ between (symbol "{") (symbol "}") (many (noneOf "}"))
+
+-- Iteration
+
+forLoopParser :: Parser ()
+forLoopParser = do
+  reserved "for"
+  _ <- identifier
+  reserved "in"
+  _ <- (try $ reserved "range" *> many (noneOf "{")) <|> identifier
+  void $ between (symbol "{") (symbol "}") (many (noneOf "}"))
+
+-- Conditionals
+
+conditionalParser :: Parser ()
+conditionalParser = do
+  reserved "if"
+  _ <- many (noneOf "{")
+  _ <- between (symbol "{") (symbol "}") (many (noneOf "}"))
+  _ <- optional (do
+    reserved "elif"
+    _ <- many (noneOf "{")
+    void $ between (symbol "{") (symbol "}") (many (noneOf "}")))
+  _ <- optional (do
+    reserved "else"
+    void $ between (symbol "{") (symbol "}") (many (noneOf "}")))
+  return ()
+  
+-- Main Parser
+
+programParser :: Parser ()
+programParser = do
+  _ <- many (choice [
+    try importParser,
+    try structParser,
+    try enumParser,
+    try aliasParser,
+    try objectParser,
+    try containerParser,
+    try functionParser,
+    try forLoopParser,
+    try conditionalParser
+    ])
+  eof
+
+-- Parse function
+
+parseProgram :: String -> Either (ParseErrorBundle String Void) ()
+parseProgram = parse programParser ""
