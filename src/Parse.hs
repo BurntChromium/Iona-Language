@@ -11,34 +11,30 @@ import qualified Data.Text as T
 
 type Parser = Parsec Void Text
 
--- This is shared between IonaDecl and IonaStmt
-data VariableDeclaration = VariableDeclaration Text Text [Text] Text deriving (Show)
-
 -- AST for Iona Lang
-data IonaDecl
+data ASTNode
   = ImportDecl Text [Text]
   | StructDecl Text [(Text, Text)] [Text]
   | EnumDecl Text [(Text, Maybe Text)] [Text]
-  | LetDecl VariableDeclaration
-  | FuncDecl Text [(Text, Text)] Text [Text] [Text] [Text] [IonaStmt]
+  | FuncDecl Text [(Text, Text)] Text [Text] [Text] [Text] [Statement]
   deriving (Show)
 
 -- These can show up inside a block/scope
-data IonaStmt
-  = IfStmt IonaExpr [IonaStmt] (Maybe [IonaStmt])
-  | ForStmt Text IonaExpr [IonaStmt]
-  | ReturnStmt IonaExpr
-  | ExprStmt IonaExpr
-  | Contract Text IonaExpr
+data Statement
+  = IfStmt Expression [Statement] (Maybe [Statement])
+  | ForStmt Text Expression [Statement]
+  | ReturnStmt Expression
+  | ExprStmt Expression
+  | Contract Text Expression
   | Annotation Text [Text]
-  | VarStmt VariableDeclaration -- we can declare variables in a block
+  | VarStmt Text Text [Text] Expression
   deriving (Show)
 
-data IonaExpr
+data Expression
   = Var Text
   | IntLit Int
   | StrLit Text
-  | FuncCall Text [IonaExpr]
+  | FuncCall Text [Expression]
   deriving (Show)
 
 -- Lexer
@@ -67,7 +63,7 @@ pField = do
   return (name, typ)
 
 -- Parsing imports
-pImport :: Parser IonaDecl
+pImport :: Parser ASTNode
 pImport = do
   _ <- symbol "import"
   file <- identifier
@@ -77,7 +73,7 @@ pImport = do
   return $ ImportDecl file imports
 
 -- Parsing structs
-pStruct :: Parser IonaDecl
+pStruct :: Parser ASTNode
 pStruct = do
   _ <- symbol "struct"
   name <- identifier
@@ -88,7 +84,7 @@ pStruct = do
   return $ StructDecl name fields properties
 
 -- Parsing enums
-pEnum :: Parser IonaDecl
+pEnum :: Parser ASTNode
 pEnum = do
   _ <- symbol "enum"
   name <- identifier
@@ -104,33 +100,20 @@ pEnum = do
       return (varName, typ)
 
 -- Parsing let bindings
-pLetDecl :: Parser IonaDecl
-pLetDecl = do
+pLet :: Parser Statement
+pLet = do
   _ <- symbol "let"
   name <- identifier
   _ <- symbol "::"
   typ <- pType
   properties <- many (symbol "::" *> identifier)
   _ <- symbol "="
-  value <- identifier
+  value <- pExpr
   _ <- symbol ";"
-  return $ LetDecl (VariableDeclaration name typ properties value)
-
-pLetStmt :: Parser IonaStmt
-pLetStmt = do
-  _ <- symbol "let"
-  name <- identifier
-  _ <- symbol "::"
-  typ <- pType
-  properties <- many (symbol "::" *> identifier)
-  _ <- symbol "="
-  value <- identifier
-  _ <- symbol ";"
-  return $ VarStmt (VariableDeclaration name typ properties value)
-
+  return $ VarStmt name typ properties value
 
 -- Parsing function definitions
-pFunc :: Parser IonaDecl
+pFunc :: Parser ASTNode
 pFunc = do
   _ <- symbol "fn"
   name <- identifier
@@ -138,28 +121,27 @@ pFunc = do
   args <- pField `sepBy` symbol "::"
   _ <- symbol "->"
   retType <- lexeme pType
-  stmts <- pBlock
-  return $ FuncDecl name args retType [] [] [] stmts
+  FuncDecl name args retType [] [] [] <$> pBlock
 
--- pMetadata :: Parser IonaStmt
+-- pMetadata :: Parser Statement
 -- pMetadata = 
 
-pBlock :: Parser [IonaStmt]
+pBlock :: Parser [Statement]
 pBlock = between (symbol "{") (symbol "}") (many pStmt)
 
-pStmt :: Parser IonaStmt
+pStmt :: Parser Statement
 pStmt = choice
-  [ pIfStmt
+  [ pLet
+  , pIfStmt
   , pForStmt
   , pReturnStmt
   , pContract
   , pAnnotation
   , ExprStmt <$> pExpr
-  , pLetStmt
   ]
 
 -- If statement
-pIfStmt :: Parser IonaStmt
+pIfStmt :: Parser Statement
 pIfStmt = do
   _ <- symbol "if"
   cond <- pExpr
@@ -168,17 +150,16 @@ pIfStmt = do
   return $ IfStmt cond stmts elseStmts
 
 -- For loop
-pForStmt :: Parser IonaStmt
+pForStmt :: Parser Statement
 pForStmt = do
   _ <- symbol "for"
   var <- identifier
   _ <- symbol "in"
   iter <- pExpr
-  stmts <- pBlock
-  return $ ForStmt var iter stmts
+  ForStmt var iter <$> pBlock
 
 -- Return statement
-pReturnStmt :: Parser IonaStmt
+pReturnStmt :: Parser Statement
 pReturnStmt = do
   _ <- symbol "return"
   expr <- pExpr
@@ -186,15 +167,14 @@ pReturnStmt = do
   return $ ReturnStmt expr
 
 -- Parse contracts (In, Out, Invariant)
-pContract :: Parser IonaStmt
+pContract :: Parser Statement
 pContract = do
   keyword <- choice [symbol "In", symbol "Out", symbol "Invariant"]
   _ <- symbol ":"
-  expr <- pExpr
-  return $ Contract keyword expr
+  Contract keyword <$> pExpr
 
 -- Parse annotations (Props, Uses)
-pAnnotation :: Parser IonaStmt
+pAnnotation :: Parser Statement
 pAnnotation = do
   keyword <- choice [symbol "Props", symbol "Uses"]
   _ <- symbol ":"
@@ -202,7 +182,7 @@ pAnnotation = do
   return $ Annotation keyword values
 
 -- Expression parsing
-pExpr :: Parser IonaExpr
+pExpr :: Parser Expression
 pExpr = choice
   [ Var <$> identifier
   , IntLit <$> lexeme L.decimal
@@ -210,13 +190,13 @@ pExpr = choice
   , pFuncCall
   ]
 
-pFuncCall :: Parser IonaExpr
+pFuncCall :: Parser Expression
 pFuncCall = do
   name <- identifier
   args <- between (symbol "(") (symbol ")") (pExpr `sepBy` symbol ",")
   return $ FuncCall name args
 
 -- Entry point for the parser
-pIona :: Parser [IonaDecl]
-pIona = many (sc *> choice [pImport, pStruct, pEnum, pLetDecl, pFunc] <* sc)
+pIona :: Parser [ASTNode]
+pIona = many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
 
