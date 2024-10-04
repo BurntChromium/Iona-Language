@@ -2,10 +2,8 @@ module Errors (
     ProblemClass(..),
     Problem(..),
     quickProblem,
-    parserError
 ) where
 
-import SharedTypes (Token(..))
 import qualified Source
 
 -- | How severe is the issue?
@@ -22,6 +20,3 @@ data Problem = Problem {
 
 quickProblem :: ProblemClass -> Source.Cursor -> String -> Problem
 quickProblem cls crs msg = Problem cls crs msg Nothing Nothing
-
-parserError :: Token -> String -> Problem
-parserError tok = quickProblem Error (pos tok)
