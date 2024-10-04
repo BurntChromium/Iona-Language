@@ -25,6 +25,8 @@ data IonaStmt
   | ForStmt Text IonaExpr [IonaStmt]
   | ReturnStmt IonaExpr
   | ExprStmt IonaExpr
+  | Contract Text IonaExpr
+  | Annotation Text [Text]
   deriving (Show)
 
 data IonaExpr
@@ -44,10 +46,11 @@ lexeme = L.lexeme sc
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
+-- Identifiers are names for variables, fns, etc
 identifier :: Parser Text
-identifier = lexeme $ T.pack <$> ((:) <$> letterChar <*> many alphaNumChar)
+identifier = lexeme $ T.pack <$> ((:) <$> letterChar <*> many (alphaNumChar <|> char '_'))
 
--- Parsing basic elements
+-- Types are just identifiers for now
 pType :: Parser Text
 pType = identifier
 
@@ -113,11 +116,15 @@ pFunc :: Parser IonaDecl
 pFunc = do
   _ <- symbol "fn"
   name <- identifier
+  _ <- symbol "="
   args <- pField `sepBy` symbol "::"
-  _ <- symbol "::"
-  retType <- pType
+  _ <- symbol "->"
+  retType <- lexeme pType
   stmts <- pBlock
   return $ FuncDecl name args retType [] [] [] stmts
+
+-- pMetadata :: Parser IonaStmt
+-- pMetadata = 
 
 pBlock :: Parser [IonaStmt]
 pBlock = between (symbol "{") (symbol "}") (many pStmt)
@@ -127,6 +134,8 @@ pStmt = choice
   [ pIfStmt
   , pForStmt
   , pReturnStmt
+  , pContract
+  , pAnnotation
   , ExprStmt <$> pExpr
   ]
 
@@ -156,6 +165,22 @@ pReturnStmt = do
   expr <- pExpr
   _ <- symbol ";"
   return $ ReturnStmt expr
+
+-- Parse contracts (In, Out, Invariant)
+pContract :: Parser IonaStmt
+pContract = do
+  keyword <- choice [symbol "In", symbol "Out", symbol "Invariant"]
+  _ <- symbol ":"
+  expr <- pExpr
+  return $ Contract keyword expr
+
+-- Parse annotations (Props, Uses)
+pAnnotation :: Parser IonaStmt
+pAnnotation = do
+  keyword <- choice [symbol "Props", symbol "Uses"]
+  _ <- symbol ":"
+  values <- identifier `sepBy` space
+  return $ Annotation keyword values
 
 -- Expression parsing
 pExpr :: Parser IonaExpr
