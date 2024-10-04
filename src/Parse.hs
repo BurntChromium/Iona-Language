@@ -2,12 +2,13 @@
 
 module Parse where
 
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
-import Data.Void
-import Data.Text (Text)
-import qualified Data.Text as T
+import Text.Megaparsec.Char.Lexer qualified as L
+import Text.Megaparsec.Debug
 
 type Parser = Parsec Void Text
 
@@ -33,8 +34,11 @@ data Statement
 data Expression
   = Var Text
   | IntLit Int
+  | FloatLit Double
   | StrLit Text
   | FuncCall Text [Expression]
+  | TupleLit [Expression]
+  | ListLit [Expression]
   deriving (Show)
 
 -- Lexer
@@ -59,8 +63,16 @@ pType = identifier
 pField :: Parser (Text, Text)
 pField = do
   name <- identifier
-  typ <- lexeme identifier  -- Expect a space between field name and type
+  typ <- lexeme identifier -- Expect a space between field name and type
   return (name, typ)
+
+-- Helper for stuff between parenthesis
+parens :: Parser a -> Parser a
+parens = between (symbol "(") (symbol ")")
+
+-- Helper for stuff between square brackets
+brackets :: Parser a -> Parser a
+brackets = between (symbol "[") (symbol "]")
 
 -- Parsing imports
 pImport :: Parser ASTNode
@@ -101,7 +113,7 @@ pEnum = do
 
 -- Parsing let bindings
 pLet :: Parser Statement
-pLet = do
+pLet = dbg "pLet" $ do
   _ <- symbol "let"
   name <- identifier
   _ <- symbol "::"
@@ -112,7 +124,7 @@ pLet = do
   _ <- symbol ";"
   return $ VarStmt name typ properties value
 
--- Parsing function definitions
+-- Parsing function definitions (NOT function calls - those are below)
 pFunc :: Parser ASTNode
 pFunc = do
   _ <- symbol "fn"
@@ -124,21 +136,22 @@ pFunc = do
   FuncDecl name args retType [] [] [] <$> pBlock
 
 -- pMetadata :: Parser Statement
--- pMetadata = 
+-- pMetadata =
 
 pBlock :: Parser [Statement]
 pBlock = between (symbol "{") (symbol "}") (many pStmt)
 
 pStmt :: Parser Statement
-pStmt = choice
-  [ pLet
-  , pIfStmt
-  , pForStmt
-  , pReturnStmt
-  , pContract
-  , pAnnotation
-  , ExprStmt <$> pExpr
-  ]
+pStmt =
+  choice
+    [ pLet,
+      pIfStmt,
+      pForStmt,
+      pReturnStmt,
+      pContract,
+      pAnnotation,
+      ExprStmt <$> pExpr
+    ]
 
 -- If statement
 pIfStmt :: Parser Statement
@@ -171,7 +184,9 @@ pContract :: Parser Statement
 pContract = do
   keyword <- choice [symbol "In", symbol "Out", symbol "Invariant"]
   _ <- symbol ":"
-  Contract keyword <$> pExpr
+  expr <- pExpr
+  _ <- symbol ";"
+  return $ Contract keyword expr
 
 -- Parse annotations (Props, Uses)
 pAnnotation :: Parser Statement
@@ -179,24 +194,48 @@ pAnnotation = do
   keyword <- choice [symbol "Props", symbol "Uses"]
   _ <- symbol ":"
   values <- identifier `sepBy` space
+  _ <- symbol ";"
   return $ Annotation keyword values
 
--- Expression parsing
 pExpr :: Parser Expression
-pExpr = choice
-  [ Var <$> identifier
-  , IntLit <$> lexeme L.decimal
-  , StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"')))
-  , pFuncCall
-  ]
+pExpr =
+  choice
+    [ Var <$> identifier,
+      try (FloatLit <$> lexeme L.float),
+      IntLit <$> lexeme L.decimal,
+      StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"'))),
+      try pFuncCallParen, -- Handle function calls with parentheses
+      pFuncCallNoParen, -- Handle function calls without parentheses
+      pListLiteral,
+      pTupleLiteral
+    ]
 
-pFuncCall :: Parser Expression
-pFuncCall = do
-  name <- identifier
-  args <- between (symbol "(") (symbol ")") (pExpr `sepBy` symbol ",")
-  return $ FuncCall name args
+-- Parse function calls with parentheses
+pFuncCallParen :: Parser Expression
+pFuncCallParen = do
+  fnName <- identifier
+  args <- parens (pExpr `sepBy` symbol ",")
+  return $ FuncCall fnName args
+
+-- Parse function calls without parentheses
+pFuncCallNoParen :: Parser Expression
+pFuncCallNoParen = do
+  fnName <- identifier
+  args <- many pExpr
+  return $ FuncCall fnName args
+
+-- Parse list literals
+pListLiteral :: Parser Expression
+pListLiteral = do
+  elements <- brackets (pExpr `sepBy` symbol ",")
+  return $ ListLit elements
+
+-- Parse tuple literals
+pTupleLiteral :: Parser Expression
+pTupleLiteral = do
+  elements <- parens (pExpr `sepBy` symbol ",")
+  return $ TupleLit elements
 
 -- Entry point for the parser
 pIona :: Parser [ASTNode]
 pIona = many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
-

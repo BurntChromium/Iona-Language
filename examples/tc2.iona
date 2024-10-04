@@ -8,7 +8,7 @@ struct Point2D = x float :: y float
 
 # Euclidean distance in 2 dimensions
 fn euclidean_2d = p Point2D :: q Point2D -> float {
-    Props: Pure Public
+    Props: Pure Public;
     let discard :: float = 3.0;
     let x_dist :: float = pow (minus p.x q.x) 2;
     let y_dist :: float = pow (minus p.y q.y) 2;
