@@ -11,15 +11,19 @@ import qualified Data.Text as T
 
 type Parser = Parsec Void Text
 
+-- This is shared between IonaDecl and IonaStmt
+data VariableDeclaration = VariableDeclaration Text Text [Text] Text deriving (Show)
+
 -- AST for Iona Lang
 data IonaDecl
   = ImportDecl Text [Text]
   | StructDecl Text [(Text, Text)] [Text]
   | EnumDecl Text [(Text, Maybe Text)] [Text]
-  | LetDecl Text Text [Text] Text
+  | LetDecl VariableDeclaration
   | FuncDecl Text [(Text, Text)] Text [Text] [Text] [Text] [IonaStmt]
   deriving (Show)
 
+-- These can show up inside a block/scope
 data IonaStmt
   = IfStmt IonaExpr [IonaStmt] (Maybe [IonaStmt])
   | ForStmt Text IonaExpr [IonaStmt]
@@ -27,6 +31,7 @@ data IonaStmt
   | ExprStmt IonaExpr
   | Contract Text IonaExpr
   | Annotation Text [Text]
+  | VarStmt VariableDeclaration -- we can declare variables in a block
   deriving (Show)
 
 data IonaExpr
@@ -99,8 +104,8 @@ pEnum = do
       return (varName, typ)
 
 -- Parsing let bindings
-pLet :: Parser IonaDecl
-pLet = do
+pLetDecl :: Parser IonaDecl
+pLetDecl = do
   _ <- symbol "let"
   name <- identifier
   _ <- symbol "::"
@@ -109,7 +114,20 @@ pLet = do
   _ <- symbol "="
   value <- identifier
   _ <- symbol ";"
-  return $ LetDecl name typ properties value
+  return $ LetDecl (VariableDeclaration name typ properties value)
+
+pLetStmt :: Parser IonaStmt
+pLetStmt = do
+  _ <- symbol "let"
+  name <- identifier
+  _ <- symbol "::"
+  typ <- pType
+  properties <- many (symbol "::" *> identifier)
+  _ <- symbol "="
+  value <- identifier
+  _ <- symbol ";"
+  return $ VarStmt (VariableDeclaration name typ properties value)
+
 
 -- Parsing function definitions
 pFunc :: Parser IonaDecl
@@ -137,6 +155,7 @@ pStmt = choice
   , pContract
   , pAnnotation
   , ExprStmt <$> pExpr
+  , pLetStmt
   ]
 
 -- If statement
@@ -199,5 +218,5 @@ pFuncCall = do
 
 -- Entry point for the parser
 pIona :: Parser [IonaDecl]
-pIona = many (sc *> choice [pImport, pStruct, pEnum, pLet, pFunc] <* sc)
+pIona = many (sc *> choice [pImport, pStruct, pEnum, pLetDecl, pFunc] <* sc)
 
