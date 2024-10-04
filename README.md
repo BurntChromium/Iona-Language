@@ -43,38 +43,6 @@ Iona supports contracts: runtime checks to prevent a program from entering an in
 2. Postconditions: checks on the result of a function, before it's returned
 3. Invariants: checks during function execution
 
-The goal of contracts is to try and catch potential runtime errors at compile time. Suppose you have a division function `fn div :: numerator -> denominator -> quotient`. You could always manually check in the body that `denominator != 0`, but if you make it a contract the compiler can warn you ahead of time about runtime problems based on the inputs you provide. For instance, when composing functions we can check that the post conditions of the inner function are at least as strict as the pre conditions of outer function.
+The goal of contracts is to try and catch potential runtime errors at compile time. Suppose you have a division function. You could always manually check in the body that `denominator != 0`, but if you make it a contract the compiler can warn you ahead of time about runtime problems based on the inputs you provide. For instance, when composing functions we can check that the post conditions of the inner function are at least as strict as the pre conditions of outer function.
 
 At least with pre- and post- conditions this is the same idea as [refinement types](https://en.wikipedia.org/wiki/Refinement_type), like Liquid Haskell.
-
-```rs
-fn div :: a int -> b int -> int {
-    Properties: Pure Export
-    In: b != 0 -> "b must not be 0" 
-    return a / b
-}
-```
-The contract here specifies what properties the input must obey (it's a whitelist, not a blacklist).
-
-## Compiler Features
-
-### Good error messages 
-
-Iona strives to make debugging as easy as possible by providing useful error messages, code context, cross-references to other parts of the codebase, and hints (where appropriate).
-
-Here's an example of a very basic error (no hinting or references) that I manufactured (don't worry, parenthesis are properly recognized in normal operation).
-
-```sh
-Error: unrecognized symbol: ')' at line 13, column 44
-  12 |     let x_dist :: float = pow (minus p.x q.x) 2;
-  13 |     let y_dist :: float = pow (minus p.y q.y) 2;
-  14 |     return sqrt add x_dist y_dist;
-```
-
-### Working with Source
-
-Run the compiler against an example program
-
-```sh
-cabal run iona-compiler -- ./examples/tc1.iona
-```
