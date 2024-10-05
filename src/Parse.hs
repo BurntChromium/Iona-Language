@@ -198,31 +198,41 @@ pAnnotation = do
   _ <- symbol ";"
   return $ Annotation keyword values
 
+-- Main expression parser
 pExpr :: Parser Expression
 pExpr = do
-  expr <- pTerm
-  rest expr
+  terms <- some pTerm
+  case terms of
+    [] -> fail "Empty expression"
+    [singleTerm] -> return singleTerm
+    (Var func : args) -> return $ FuncCall func args
+    _ -> return $ foldl1 (\f x -> FuncCall (extractFuncName f) [f, x]) terms
+
+-- Helper function to extract function name from an expression
+extractFuncName :: Expression -> Text
+extractFuncName (Var name) = name
+extractFuncName _ = "anonymous_func" -- Default name for non-variable expressions used as functions
 
 -- Parse a term (the base of an expression)
 pTerm :: Parser Expression
-pTerm = choice
-  [ try (FloatLit <$> lexeme L.float)
-  , IntLit <$> lexeme L.decimal
-  , StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"')))
-  , try pFuncCallParen  -- Handle function calls with parentheses
-  , pFuncCallNoParen    -- Handle function calls without parentheses
-  , pListLiteral
-  , pTupleLiteral
-  , Var <$> identifier
-  , between (symbol "(") (symbol ")") pExpr
-  ]
+pTerm =
+  choice
+    [ try (FloatLit <$> lexeme L.float),
+      IntLit <$> lexeme L.decimal,
+      StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"'))),
+      try pFieldAccess, -- Handle field access
+      pListLiteral,
+      pTupleLiteral,
+      Var <$> identifier,
+      between (symbol "(") (symbol ")") pExpr
+    ]
 
--- Parse the rest of an expression (field access)
-rest :: Expression -> Parser Expression
-rest expr = option expr $ do
-  _ <- symbol "."
-  field <- identifier
-  rest (FieldAccess expr field)
+-- Parser for field access (struct fields)
+pFieldAccess :: Parser Expression
+pFieldAccess = do
+  base <- choice [Var <$> identifier, between (symbol "(") (symbol ")") pExpr]
+  fields <- many (symbol "." *> identifier)
+  return $ foldl FieldAccess base fields
 
 -- Parse function calls with parentheses
 pFuncCallParen :: Parser Expression
