@@ -8,7 +8,8 @@ import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer qualified as L
-import Text.Megaparsec.Debug
+
+-- import Text.Megaparsec.Debug -- (imports dbg macro: func = "dbg" $ do)
 
 type Parser = Parsec Void Text
 
@@ -114,7 +115,7 @@ pEnum = do
 
 -- Parsing let bindings
 pLet :: Parser Statement
-pLet = dbg "pLet" $ do
+pLet = do
   _ <- symbol "let"
   name <- identifier
   _ <- symbol "::"
