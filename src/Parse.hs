@@ -39,6 +39,7 @@ data Expression
   | FuncCall Text [Expression]
   | TupleLit [Expression]
   | ListLit [Expression]
+  | FieldAccess Expression Text
   deriving (Show)
 
 -- Lexer
@@ -198,17 +199,30 @@ pAnnotation = do
   return $ Annotation keyword values
 
 pExpr :: Parser Expression
-pExpr =
-  choice
-    [ Var <$> identifier,
-      try (FloatLit <$> lexeme L.float),
-      IntLit <$> lexeme L.decimal,
-      StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"'))),
-      try pFuncCallParen, -- Handle function calls with parentheses
-      pFuncCallNoParen, -- Handle function calls without parentheses
-      pListLiteral,
-      pTupleLiteral
-    ]
+pExpr = do
+  expr <- pTerm
+  rest expr
+
+-- Parse a term (the base of an expression)
+pTerm :: Parser Expression
+pTerm = choice
+  [ try (FloatLit <$> lexeme L.float)
+  , IntLit <$> lexeme L.decimal
+  , StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"')))
+  , try pFuncCallParen  -- Handle function calls with parentheses
+  , pFuncCallNoParen    -- Handle function calls without parentheses
+  , pListLiteral
+  , pTupleLiteral
+  , Var <$> identifier
+  , between (symbol "(") (symbol ")") pExpr
+  ]
+
+-- Parse the rest of an expression (field access)
+rest :: Expression -> Parser Expression
+rest expr = option expr $ do
+  _ <- symbol "."
+  field <- identifier
+  rest (FieldAccess expr field)
 
 -- Parse function calls with parentheses
 pFuncCallParen :: Parser Expression
