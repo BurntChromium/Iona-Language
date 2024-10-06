@@ -16,9 +16,9 @@ type Parser = Parsec Void Text
 -- AST for Iona Lang
 data ASTNode
   = ImportDecl Text [Text]
-  | StructDecl Text [(Text, Text)] [Text]
+  | StructDecl Text [(Text, Text)] [Text] [Text]
   | EnumDecl Text [(Text, Maybe Text)] [Text]
-  | FuncDecl Text [(Text, Text)] Text [Text] [Text] [Text] [Statement]
+  | FuncDecl Text [(Text, Text)] Text [Statement]
   deriving (Show)
 
 -- These can show up inside a block/scope
@@ -93,9 +93,16 @@ pStruct = do
   name <- identifier
   _ <- symbol "="
   fields <- pField `sepBy` symbol "::"
-  properties <- many identifier
+  -- Get properties (`is Public`)
+  properties <- option [] $ do
+    _ <- symbol "is"
+    manyTill identifier (lookAhead (symbol "derives") <|> symbol ";")
+  -- Get automatic methods
+  derives <- option [] $ do
+    _ <- symbol "derives"
+    many identifier
   _ <- symbol ";"
-  return $ StructDecl name fields properties
+  return $ StructDecl name fields properties derives
 
 -- Parsing enums
 pEnum :: Parser ASTNode
@@ -135,7 +142,7 @@ pFunc = do
   args <- pField `sepBy` symbol "::"
   _ <- symbol "->"
   retType <- lexeme pType
-  FuncDecl name args retType [] [] [] <$> pBlock
+  FuncDecl name args retType <$> pBlock
 
 -- pMetadata :: Parser Statement
 -- pMetadata =
