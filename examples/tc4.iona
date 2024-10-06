@@ -1,0 +1,3 @@
+struct Employee = id int :: salary int 
+	is Public ThreadSafe
+	derives Log;

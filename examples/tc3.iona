@@ -1,0 +1,4 @@
+fn sqrt = x int -> float {
+    Props: Pure Public;
+    return pow x 0.5; 
+}

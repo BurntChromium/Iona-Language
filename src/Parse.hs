@@ -1,133 +1,273 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Parse where
 
-import Control.Applicative
-import Control.Monad (void)
-import Data.Maybe (maybeToList)
-import Text.Read(readEither)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Void
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import Text.Megaparsec.Char.Lexer qualified as L
 
-import Lex (Token(..), Symbol(..))
-import Errors(Problem(..), ProblemClass(..), quickProblem)
+-- import Text.Megaparsec.Debug -- (imports dbg macro: func = "dbg" $ do)
 
--- ==================== Data Schema ====================
+type Parser = Parsec Void Text
 
--- | Built-in data types
-data PrimitiveDataType =
-    PrimitiveInt Int |
-    PrimitiveFloat Float |
-    PrimitiveStr String |
-    PrimitiveBool Bool
-    deriving (Show, Eq)
+-- AST for Iona Lang
+data ASTNode
+  = ImportDecl Text [Text]
+  | StructDecl Text [(Text, Text)] [Text] [Text]
+  | EnumDecl Text [(Text, Maybe Text)] [Text]
+  | FuncDecl Text [(Text, Text)] Text [Statement]
+  deriving (Show)
 
--- | Valid properties for a variable
-data VariableProperty = Mutable | ThreadSafe deriving (Show, Eq)
+-- These can show up inside a block/scope
+data Statement
+  = IfStmt Expression [Statement] (Maybe [Statement])
+  | ForStmt Text Expression [Statement]
+  | ReturnStmt Expression
+  | ExprStmt Expression
+  | Contract Text Expression
+  | Annotation Text [Text]
+  | VarStmt Text Text [Text] Expression
+  deriving (Show)
 
--- | Valid properties for a function
-data FunctionProperty = Pure | Public deriving (Show, Eq)
+data Expression
+  = Var Text
+  | IntLit Int
+  | FloatLit Double
+  | StrLit Text
+  | FuncCall Text [Expression]
+  | TupleLit [Expression]
+  | ListLit [Expression]
+  | FieldAccess Expression Text
+  deriving (Show)
 
--- | What behaviors ("side effects") can a function perform?
-data Permission = ReadFile | WriteFile | Custom String deriving (Show, Eq)
+-- Lexer
+sc :: Parser ()
+sc = L.space space1 (L.skipLineComment "#") empty
 
--- | Core data for a variable
-data Variable = Variable {
-    name :: String,
-    vType :: PrimitiveDataType, -- `type` is a reserved word in Haskell
-    vProps :: [VariableProperty]
-} deriving (Show, Eq)
+lexeme :: Parser a -> Parser a
+lexeme = L.lexeme sc
 
-type Scope = String
+symbol :: Text -> Parser Text
+symbol = L.symbol sc
 
--- | AST nodes: only some are true (recursive) trees because statements like import or property lists are flat
-data AST =
-    Import Scope ImportStmt |
-    DeclareFn Scope Function [AST] |
-    DeclareVar Scope Variable [AST] |
-    Expression Scope ExpressionStmt |
-    FnProperty Scope [FunctionProperty] |
-    FnPermission Scope [Permission]
-    deriving (Show, Eq)
+-- Identifiers are names for variables, fns, etc
+identifier :: Parser Text
+identifier = lexeme $ T.pack <$> ((:) <$> letterChar <*> many (alphaNumChar <|> char '_'))
 
-data ImportStmt = NodeImport {
-    file :: String,
-    items :: [String]
-} deriving (Show, Eq)
+-- Types are just identifiers for now
+pType :: Parser Text
+pType = identifier
 
--- | Core data for a function
-data Function = Function {
-    name :: String,
-    arguments :: [Variable],
-    returnType :: PrimitiveDataType,
-    fProps :: [FunctionProperty],
-    permissions :: [Permission]
-} deriving (Show, Eq)
+-- Parsing a struct field: fieldName followed by its type, separated by a space
+pField :: Parser (Text, Text)
+pField = do
+  name <- identifier
+  typ <- lexeme identifier -- Expect a space between field name and type
+  return (name, typ)
 
-data ExpressionStmt = Literal PrimitiveDataType | Method String [ExpressionStmt] deriving (Show, Eq)
+-- Helper for stuff between parenthesis
+parens :: Parser a -> Parser a
+parens = between (symbol "(") (symbol ")")
 
--- ==================== Parsers ====================
+-- Helper for stuff between square brackets
+brackets :: Parser a -> Parser a
+brackets = between (symbol "[") (symbol "]")
 
--- | A parser can return multiple types, a Variable, an AST, etc.
-type Parser a = [Token] -> Either Problem (a, [Token])
+-- Parsing imports
+pImport :: Parser ASTNode
+pImport = do
+  _ <- symbol "import"
+  file <- identifier
+  _ <- symbol "with"
+  imports <- many identifier
+  _ <- symbol ";"
+  return $ ImportDecl file imports
 
--- Parse a token against a predicate
-tokenSatisfying :: (Token -> Bool) -> Parser Token
-tokenSatisfying pred = Parser $ \case
-    t:ts | pred t -> Right (t, ts)
-    t:ts | not (pred t) -> Left quickProblem Error (pos t) ("unexpected token: " ++ str t)
+-- Parsing structs
+pStruct :: Parser ASTNode
+pStruct = do
+  _ <- symbol "struct"
+  name <- identifier
+  _ <- symbol "="
+  fields <- pField `sepBy` symbol "::"
+  -- Get properties (`is Public`)
+  properties <- option [] $ do
+    _ <- symbol "is"
+    manyTill identifier (lookAhead (symbol "derives") <|> symbol ";")
+  -- Get automatic methods
+  derives <- option [] $ do
+    _ <- symbol "derives"
+    many identifier
+  _ <- symbol ";"
+  return $ StructDecl name fields properties derives
 
--- | Flipped version of the <$> (fmap) operator 
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip (<$>)
+-- Parsing enums
+pEnum :: Parser ASTNode
+pEnum = do
+  _ <- symbol "enum"
+  name <- identifier
+  _ <- symbol "="
+  variants <- variant `sepBy` symbol "|"
+  properties <- many identifier
+  _ <- symbol ";"
+  return $ EnumDecl name variants properties
+  where
+    variant = do
+      varName <- identifier
+      typ <- optional pType
+      return (varName, typ)
 
--- Parse identifier token and return the string
-parseIdentifier :: Parser String
-parseIdentifier = tokenSatisfying (\t -> sym t == Identifier) <&> str
+-- Parsing let bindings
+pLet :: Parser Statement
+pLet = do
+  _ <- symbol "let"
+  name <- identifier
+  _ <- symbol "::"
+  typ <- pType
+  properties <- many (symbol "::" *> identifier)
+  _ <- symbol "="
+  value <- pExpr
+  _ <- symbol ";"
+  return $ VarStmt name typ properties value
 
--- Parse a symbol, but just checking instead of returning
-parseSymbol :: Symbol -> Parser ()
-parseSymbol s = tokenSatisfying (\t -> sym t == s)
+-- Parsing function definitions (NOT function calls - those are below)
+pFunc :: Parser ASTNode
+pFunc = do
+  _ <- symbol "fn"
+  name <- identifier
+  _ <- symbol "="
+  args <- pField `sepBy` symbol "::"
+  _ <- symbol "->"
+  retType <- lexeme pType
+  FuncDecl name args retType <$> pBlock
 
-option :: a -> Parser a -> Parser a
-option fallback parser = parser <|> pure fallback
+-- pMetadata :: Parser Statement
+-- pMetadata =
 
-parseSome :: Parser a -> Parser [a]
-parseSome parser = (:) <$> parser <*> many parser
+pBlock :: Parser [Statement]
+pBlock = between (symbol "{") (symbol "}") (many pStmt)
 
-parseMany :: Parser a -> Parser [a]
-parseMany parser = some parser <|> pure []
+pStmt :: Parser Statement
+pStmt =
+  choice
+    [ pLet,
+      pIfStmt,
+      pForStmt,
+      pReturnStmt,
+      pContract,
+      pAnnotation,
+      ExprStmt <$> pExpr
+    ]
 
--- Handle number literals (caller is assumed to only invoke on tokens of the right symbol type)
--- We treat anything with a "." in it as a float, otherwise it's an integer
--- TODO: we probably want `Parser = Either [Problem] AST` and this should return Parser
-parseNumberLiteral :: Token -> Either Problem PrimitiveDataType
-parseNumberLiteral t
-    | '.' `elem` str t =
-        case readEither (str t) :: Either String Float of
-            Right f -> Right (PrimitiveFloat f)
-            Left err -> Left (quickProblem Error (pos t) ("Invalid float literal: " ++ err))
-    | otherwise =
-        case readEither (str t) :: Either String Int of
-            Right i -> Right (PrimitiveInt i)
-            Left err  -> Left (quickProblem Error (pos t) ("Invalid integer literal: " ++ err))
+-- If statement
+pIfStmt :: Parser Statement
+pIfStmt = do
+  _ <- symbol "if"
+  cond <- pExpr
+  stmts <- pBlock
+  elseStmts <- optional (symbol "else" *> pBlock)
+  return $ IfStmt cond stmts elseStmts
 
-parseVariableDeclaration :: Parser Variable
-parseVariableDeclaration = do
-    void $ symbol VarDeclare
-    name <- identifier
-    void $ symbol FieldSep
-    vType <- dataType
-    vProps <- option [] (parseSymbol FieldSep *> many identifier)
-    void $ parseSymbol Equals
-    return $ Variable name vType (map parseVariableProperty vProps)
+-- For loop
+pForStmt :: Parser Statement
+pForStmt = do
+  _ <- symbol "for"
+  var <- identifier
+  _ <- symbol "in"
+  iter <- pExpr
+  ForStmt var iter <$> pBlock
 
--- ==================== Utilities ====================
+-- Return statement
+pReturnStmt :: Parser Statement
+pReturnStmt = do
+  _ <- symbol "return"
+  expr <- pExpr
+  _ <- symbol ";"
+  return $ ReturnStmt expr
 
--- TODO: replace list with sequence so I can push to the back more efficiently
--- | A modification of `span` that terminates on a *specific* criteria instead of anything outside the predicate
-spanUntil :: ([a], [a]) -> (a -> Bool) -> (a -> Bool) -> Either a ([a], [a])
-spanUntil stream predicate terminal
-    | null (fst stream) = Right stream
-    | terminal (head (fst stream)) = Right (tail (fst stream), snd stream ++ [head (fst stream)])
-    | predicate (head (fst stream)) = spanUntil (tail (fst stream), snd stream ++ [head (fst stream)]) predicate terminal
-    | otherwise = Left (head (fst stream))
+-- Parse contracts (In, Out, Invariant)
+pContract :: Parser Statement
+pContract = do
+  keyword <- choice [symbol "In", symbol "Out", symbol "Invariant"]
+  _ <- symbol ":"
+  expr <- pExpr
+  _ <- symbol ";"
+  return $ Contract keyword expr
+
+-- Parse annotations (Props, Uses)
+pAnnotation :: Parser Statement
+pAnnotation = do
+  keyword <- choice [symbol "Props", symbol "Uses"]
+  _ <- symbol ":"
+  values <- identifier `sepBy` space
+  _ <- symbol ";"
+  return $ Annotation keyword values
+
+-- Main expression parser
+pExpr :: Parser Expression
+pExpr = do
+  terms <- some pTerm
+  case terms of
+    [] -> fail "Empty expression"
+    [singleTerm] -> return singleTerm
+    (Var func : args) -> return $ FuncCall func args
+    _ -> return $ foldl1 (\f x -> FuncCall (extractFuncName f) [f, x]) terms
+
+-- Helper function to extract function name from an expression
+extractFuncName :: Expression -> Text
+extractFuncName (Var name) = name
+extractFuncName _ = "anonymous_func" -- Default name for non-variable expressions used as functions
+
+-- Parse a term (the base of an expression)
+pTerm :: Parser Expression
+pTerm =
+  choice
+    [ try (FloatLit <$> lexeme L.float),
+      IntLit <$> lexeme L.decimal,
+      StrLit <$> lexeme (T.pack <$> (char '"' *> manyTill L.charLiteral (char '"'))),
+      try pFieldAccess, -- Handle field access
+      pListLiteral,
+      pTupleLiteral,
+      Var <$> identifier,
+      between (symbol "(") (symbol ")") pExpr
+    ]
+
+-- Parser for field access (struct fields)
+pFieldAccess :: Parser Expression
+pFieldAccess = do
+  base <- choice [Var <$> identifier, between (symbol "(") (symbol ")") pExpr]
+  fields <- many (symbol "." *> identifier)
+  return $ foldl FieldAccess base fields
+
+-- Parse function calls with parentheses
+pFuncCallParen :: Parser Expression
+pFuncCallParen = do
+  fnName <- identifier
+  args <- parens (pExpr `sepBy` symbol ",")
+  return $ FuncCall fnName args
+
+-- Parse function calls without parentheses
+pFuncCallNoParen :: Parser Expression
+pFuncCallNoParen = do
+  fnName <- identifier
+  args <- many pExpr
+  return $ FuncCall fnName args
+
+-- Parse list literals
+pListLiteral :: Parser Expression
+pListLiteral = do
+  elements <- brackets (pExpr `sepBy` symbol ",")
+  return $ ListLit elements
+
+-- Parse tuple literals
+pTupleLiteral :: Parser Expression
+pTupleLiteral = do
+  elements <- parens (pExpr `sepBy` symbol ",")
+  return $ TupleLit elements
+
+-- Entry point for the parser
+pIona :: Parser [ASTNode]
+pIona = many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
