@@ -1,5 +1,6 @@
 module Main where
 
+import ASTRefinery qualified
 import Data.Text (pack)
 import Data.Time
 import Parse
@@ -30,12 +31,17 @@ main :: IO () = do
   putStrLn "compiling this code: "
   putStrLn (entryFile ++ "\n")
   -- Run the parser
-  let result = parse pIona filepath (pack entryFile)
-  case result of
+  let parseResult = parse pIona filepath (pack entryFile)
+  case parseResult of
     Left err -> putStrLn ("Parse error: " ++ errorBundlePretty err)
     Right ast -> do
       putStrLn "Parsing successful!"
       print ast
+      -- Refine the AST
+      let (problems, refinedAST) = ASTRefinery.refineAST ast
+      print refinedAST
+      let messages = map (Terminal.printError entryFile) problems
+      mapM_ putStrLn messages
   -- Get overall program runtime
   globalStopTime <- getCurrentTime
   putStr "compilation finished in "

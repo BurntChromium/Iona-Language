@@ -5,17 +5,36 @@
 -- Stage 1 of post-processing
 module ASTRefinery where
 
+import Data.Either (partitionEithers)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Errors (Problem)
 import Errors qualified
-import Parse (ASTNode (StructDecl), ASTNodeWithPos (ASTNodeWithPos))
+import Parse (ASTNodeWithPos (ASTNodeWithPos))
+import Parse qualified
 import Text.Megaparsec (SourcePos)
+
+-------------------- Distributor --------------------
+
+data RefinedASTNode = Import SourcePos | Struct StructDeclaration SourcePos | Enum SourcePos | Function SourcePos deriving (Show)
+
+-- | Call the right refiner for each node
+refineAST :: [ASTNodeWithPos] -> ([Problem], [RefinedASTNode])
+refineAST nodes = partitionEithers (map refineNode nodes)
+  where
+    refineNode :: ASTNodeWithPos -> Either Problem RefinedASTNode
+    refineNode wrappedNode@(ASTNodeWithPos node pos) = case node of
+      Parse.ImportDecl {} -> Left $ Errors.parserProblem pos "unimplemented"
+      Parse.StructDecl {} -> case refineStruct wrappedNode of
+        Left problem -> Left problem
+        Right structDecl -> Right $ Struct structDecl pos
+      Parse.EnumDecl {} -> Left $ Errors.parserProblem pos "unimplemented"
+      Parse.FuncDecl {} -> Left $ Errors.parserProblem pos "unimplemented"
 
 -------------------- Types --------------------
 
 -- | Supported types
-data Types = Int | Float | Str | List [Types] | Tuple [Types] | UserDefined Text
+data Types = Int | Float | Str | List [Types] | Tuple [Types] | UserDefined Text deriving (Show)
 
 -- | Match text to get a type
 recordType :: Text -> Types
@@ -42,9 +61,10 @@ data StructDeclaration = StructDeclaration
     props :: [StructProperties],
     impl :: [StructDerives]
   }
+  deriving (Show)
 
 -- | Valid struct properties for the compiler
-data StructProperties = PublicStruct | ThreadSafeStruct
+data StructProperties = PublicStruct | ThreadSafeStruct deriving (Show)
 
 -- | Convert text to a struct property
 checkStructProp :: SourcePos -> Text -> Either Problem StructProperties
@@ -54,7 +74,7 @@ checkStructProp pos propText = case propText of
   _ -> Left $ Errors.parserProblem pos ("Unknown property: " <> T.unpack propText)
 
 -- | Methods the struct can derive / implement automatically
-data StructDerives = Log | UserDefinedDerives Text
+data StructDerives = Log | UserDefinedDerives Text deriving (Show)
 
 -- | Convert text to struct derives
 recordDerives :: Text -> StructDerives
@@ -64,7 +84,7 @@ recordDerives dText = case dText of
 
 -- Generate and print error from AST refinement
 refineStruct :: ASTNodeWithPos -> Either Problem StructDeclaration
-refineStruct (ASTNodeWithPos (StructDecl name fields props derives) pos) =
+refineStruct (ASTNodeWithPos (Parse.StructDecl name fields props derives) pos) =
   case mapM (checkStructProp pos) props of
     Left invalidProp -> Left invalidProp
     Right validProps -> Right $ StructDeclaration name [(field_name, recordType typ) | (field_name, typ) <- fields] validProps (map recordDerives derives)
