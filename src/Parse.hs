@@ -9,11 +9,9 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer qualified as L
 
--- import Text.Megaparsec.Debug -- (imports dbg macro: func = "dbg" $ do)
-
 type Parser = Parsec Void Text
 
--- AST for Iona Lang
+-- | A "raw" AST node for Iona Lang (we will apply post-processing to this `Text` later)
 data ASTNode
   = ImportDecl Text [Text]
   | StructDecl Text [(Text, Text)] [Text] [Text]
@@ -21,7 +19,21 @@ data ASTNode
   | FuncDecl Text [(Text, Text)] Text [Statement]
   deriving (Show)
 
--- These can show up inside a block/scope
+-- | An AST node bundled with its source position data for downstream usage
+data ASTNodeWithPos = ASTNodeWithPos
+  { node :: ASTNode,
+    position :: SourcePos
+  }
+  deriving (Show)
+
+-- | Convert a bare AST node into one with position
+withSourcePos :: Parser ASTNode -> Parser ASTNodeWithPos
+withSourcePos p = do
+  pos <- getSourcePos
+  node <- p
+  return $ ASTNodeWithPos node pos
+
+-- | These can show up inside a block/scope
 data Statement
   = IfStmt Expression [Statement] (Maybe [Statement])
   | ForStmt Text Expression [Statement]
@@ -32,6 +44,7 @@ data Statement
   | VarStmt Text Text [Text] Expression
   deriving (Show)
 
+-- | Variables, literals, and similar
 data Expression
   = Var Text
   | IntLit Int
@@ -77,8 +90,8 @@ brackets :: Parser a -> Parser a
 brackets = between (symbol "[") (symbol "]")
 
 -- Parsing imports
-pImport :: Parser ASTNode
-pImport = do
+pImport :: Parser ASTNodeWithPos
+pImport = withSourcePos $ do
   _ <- symbol "import"
   file <- identifier
   _ <- symbol "with"
@@ -87,8 +100,8 @@ pImport = do
   return $ ImportDecl file imports
 
 -- Parsing structs
-pStruct :: Parser ASTNode
-pStruct = do
+pStruct :: Parser ASTNodeWithPos
+pStruct = withSourcePos $ do
   _ <- symbol "struct"
   name <- identifier
   _ <- symbol "="
@@ -105,8 +118,8 @@ pStruct = do
   return $ StructDecl name fields properties derives
 
 -- Parsing enums
-pEnum :: Parser ASTNode
-pEnum = do
+pEnum :: Parser ASTNodeWithPos
+pEnum = withSourcePos $ do
   _ <- symbol "enum"
   name <- identifier
   _ <- symbol "="
@@ -120,6 +133,17 @@ pEnum = do
       typ <- optional pType
       return (varName, typ)
 
+-- Parsing function definitions (NOT function calls - those are below)
+pFunc :: Parser ASTNodeWithPos
+pFunc = withSourcePos $ do
+  _ <- symbol "fn"
+  name <- identifier
+  _ <- symbol "="
+  args <- pField `sepBy` symbol "::"
+  _ <- symbol "->"
+  retType <- lexeme pType
+  FuncDecl name args retType <$> pBlock
+
 -- Parsing let bindings
 pLet :: Parser Statement
 pLet = do
@@ -132,20 +156,6 @@ pLet = do
   value <- pExpr
   _ <- symbol ";"
   return $ VarStmt name typ properties value
-
--- Parsing function definitions (NOT function calls - those are below)
-pFunc :: Parser ASTNode
-pFunc = do
-  _ <- symbol "fn"
-  name <- identifier
-  _ <- symbol "="
-  args <- pField `sepBy` symbol "::"
-  _ <- symbol "->"
-  retType <- lexeme pType
-  FuncDecl name args retType <$> pBlock
-
--- pMetadata :: Parser Statement
--- pMetadata =
 
 pBlock :: Parser [Statement]
 pBlock = between (symbol "{") (symbol "}") (many pStmt)
@@ -268,6 +278,6 @@ pTupleLiteral = do
   elements <- parens (pExpr `sepBy` symbol ",")
   return $ TupleLit elements
 
--- Entry point for the parser
-pIona :: Parser [ASTNode]
+-- | Entry point for the parser
+pIona :: Parser [ASTNodeWithPos]
 pIona = many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
