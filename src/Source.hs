@@ -1,6 +1,8 @@
 -- Source code transformations
 module Source where
 
+import Text.Megaparsec (SourcePos, sourceColumn, sourceLine, unPos)
+
 -- | Position within the source code
 data Cursor = Cursor
   { line :: Int,
@@ -16,3 +18,7 @@ updateCursor cursor c
 
 initCursor :: Cursor
 initCursor = Cursor {line = 1, column = 1}
+
+-- Convert Megaparsec SourcePos to custom Cursor
+parsecLocToCursor :: SourcePos -> Cursor
+parsecLocToCursor pos = Cursor (unPos (sourceLine pos)) (unPos (sourceColumn pos))

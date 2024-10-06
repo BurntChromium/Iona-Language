@@ -2,10 +2,12 @@ module Errors
   ( ProblemClass (..),
     Problem (..),
     quickProblem,
+    parserProblem,
   )
 where
 
 import Source qualified
+import Text.Megaparsec (SourcePos)
 
 -- | How severe is the issue?
 data ProblemClass = Error | Warning | Lint deriving (Show, Eq)
@@ -22,3 +24,7 @@ data Problem = Problem
 
 quickProblem :: ProblemClass -> Source.Cursor -> String -> Problem
 quickProblem cls crs msg = Problem cls crs msg Nothing Nothing
+
+-- Create a Problem from a parse error
+parserProblem :: SourcePos -> String -> Problem
+parserProblem pos = quickProblem Error (Source.parsecLocToCursor pos)
