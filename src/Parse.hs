@@ -17,14 +17,14 @@ data ASTNode
   | StructDecl Text [(Text, Text)] [Text] [Text]
   | EnumDecl Text [(Text, Maybe Text)] [Text]
   | FuncDecl Text [(Text, Text)] Text [Statement]
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | An AST node bundled with its source position data for downstream usage
 data ASTNodeWithPos = ASTNodeWithPos
   { node :: ASTNode,
     position :: SourcePos
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Convert a bare AST node into one with position
 withSourcePos :: Parser ASTNode -> Parser ASTNodeWithPos
@@ -42,7 +42,7 @@ data Statement
   | Contract Text Expression
   | Annotation Text [Text]
   | VarStmt Text Text [Text] Expression
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- | Variables, literals, and similar
 data Expression
@@ -54,7 +54,7 @@ data Expression
   | TupleLit [Expression]
   | ListLit [Expression]
   | FieldAccess Expression Text
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- Lexer
 sc :: Parser ()
