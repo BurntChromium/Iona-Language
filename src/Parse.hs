@@ -1,6 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parse where
+module Parse 
+  (
+    ASTNode(..),
+    ASTNodeWithPos(..),
+    Statement(..),
+    Expression(..),
+    pIona
+  )
+where
 
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -252,20 +260,6 @@ pFieldAccess = do
   fields <- many (symbol "." *> identifier)
   return $ foldl FieldAccess base fields
 
--- Parse function calls with parentheses
-pFuncCallParen :: Parser Expression
-pFuncCallParen = do
-  fnName <- identifier
-  args <- parens (pExpr `sepBy` symbol ",")
-  return $ FuncCall fnName args
-
--- Parse function calls without parentheses
-pFuncCallNoParen :: Parser Expression
-pFuncCallNoParen = do
-  fnName <- identifier
-  args <- many pExpr
-  return $ FuncCall fnName args
-
 -- Parse list literals
 pListLiteral :: Parser Expression
 pListLiteral = do
@@ -280,4 +274,9 @@ pTupleLiteral = do
 
 -- | Entry point for the parser
 pIona :: Parser [ASTNodeWithPos]
-pIona = many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
+pIona = do 
+  sc  -- skip initial whitespace and comments
+  endOfFile <- optional eof  -- check for end of input
+  case endOfFile of
+    Just _  -> return []  -- if we hit the end, return an empty list
+    Nothing -> many (sc *> choice [pImport, pStruct, pEnum, pFunc] <* sc)
